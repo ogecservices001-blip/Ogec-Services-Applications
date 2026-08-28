@@ -1,0 +1,39 @@
+{
+  "hosting": {
+    "public": "build/web",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  },
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "ogec-services-app",
+          "appId": "1:577660210223:android:cf7c55677fd3f09f7b0ada",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "ogec-services-app",
+          "configurations": {
+            "android": "1:577660210223:android:cf7c55677fd3f09f7b0ada",
+            "web": "1:577660210223:web:b1fc463ef11c397a7b0ada"
+          }
+        }
+      }
+    }
+  }
+}

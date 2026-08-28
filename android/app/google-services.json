@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "577660210223",
+    "project_id": "ogec-services-app",
+    "storage_bucket": "ogec-services-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:577660210223:android:cf7c55677fd3f09f7b0ada",
+        "android_client_info": {
+          "package_name": "com.ogecservices.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCFfiteatYhpyv5aOdUFrErwyyPTX9u-YE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
