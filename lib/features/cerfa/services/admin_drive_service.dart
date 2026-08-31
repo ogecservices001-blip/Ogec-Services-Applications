@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/services.dart' show rootBundle;
-import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:googleapis_auth/auth_io.dart';
 import 'package:http/http.dart' as http;
+import '../../../core/auth/admin_auth_service.dart';
 import '../models/equipement_model.dart';
 
 /// Client HTTP authentifié avec le compte Google de l'administrateur
@@ -12,7 +12,7 @@ import '../models/equipement_model.dart';
 /// personnel — contrairement au compte de service utilisé ailleurs dans
 /// l'app, qui ne peut pas créer de nouveaux fichiers.
 class GoogleAuthClient extends http.BaseClient {
-  final GoogleSignInAccount account;
+  final AdminGoogleCredential account;
   final http.Client _inner = http.Client();
 
   GoogleAuthClient(this.account);
@@ -146,7 +146,7 @@ class AdminDriveService {
   /// lien Drive. Aucun sous-dossier n'est créé — tout reste à plat
   /// sous la racine.
   Future<String> obtenirOuCreerDossierSite({
-    required GoogleSignInAccount adminAccount,
+    required AdminGoogleCredential adminAccount,
     required String numeroChantier,
     required String client,
     required String site,
@@ -220,7 +220,7 @@ class AdminDriveService {
   }
 
   Future<ResultatCreationModeles> creerModelesPourEquipements({
-    required GoogleSignInAccount adminAccount,
+    required AdminGoogleCredential adminAccount,
     required List<Equipement> equipements,
   }) async {
     final client = GoogleAuthClient(adminAccount);
@@ -258,7 +258,7 @@ class AdminDriveService {
   /// présents dans le dossier Drive de l'équipement, triés du plus
   /// récent au plus ancien.
   Future<List<DriveFileInfo>> listerCerfaFinalises({
-    required GoogleSignInAccount adminAccount,
+    required AdminGoogleCredential adminAccount,
     required Equipement equipement,
   }) async {
     final client = GoogleAuthClient(adminAccount);
@@ -293,7 +293,7 @@ class AdminDriveService {
   }
 
   Future<Uint8List> telechargerFichier({
-    required GoogleSignInAccount adminAccount,
+    required AdminGoogleCredential adminAccount,
     required String fileId,
   }) async {
     final client = GoogleAuthClient(adminAccount);
@@ -316,7 +316,7 @@ class AdminDriveService {
   /// Drive, l'accessibilité du dossier, la présence du modèle PDF, et
   /// les informations de signataire (nom/email).
   Future<List<VerificationDossier>> verifierDossiers({
-    required GoogleSignInAccount adminAccount,
+    required AdminGoogleCredential adminAccount,
     required List<Equipement> equipements,
     void Function(int actuel, int total)? onProgress,
   }) async {

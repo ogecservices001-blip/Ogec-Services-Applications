@@ -29,6 +29,11 @@ class ClientModel {
     this.courrielResponsable = "",
   });
 
+  /// Un client est "hors contrat" quand son N°Affaire commence par "362-"
+  /// (le N° Client 362 sert de regroupement générique pour les sites hors
+  /// contrat dans la base OGEC Services, chacun avec son propre N°Site).
+  bool get horsContrat => nAffaire.trim().startsWith('362-');
+
   factory ClientModel.fromFirestore(DocumentSnapshot doc) {
     Map data = doc.data() as Map<String, dynamic>;
     return ClientModel(

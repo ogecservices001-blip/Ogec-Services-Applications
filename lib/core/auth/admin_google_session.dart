@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import 'admin_auth_service.dart';
 
 /// Connexion Google admin à la demande : contrairement à l'ancien modèle
@@ -14,15 +13,15 @@ class AdminGoogleSession {
   static final AdminGoogleSession instance = AdminGoogleSession._();
 
   final AdminAuthService _authService = AdminAuthService();
-  GoogleSignInAccount? _cachedAccount;
+  AdminGoogleCredential? _cachedAccount;
 
-  GoogleSignInAccount? get cachedAccount => _cachedAccount;
+  AdminGoogleCredential? get cachedAccount => _cachedAccount;
 
   /// Retourne un compte Google admin validé, en le mettant en cache pour
   /// le reste de la session. Si aucun compte n'est encore en cache,
   /// affiche d'abord une confirmation puis déclenche la connexion Google
   /// interactive (restreinte au compte administrateur autorisé).
-  Future<GoogleSignInAccount> ensureSignedIn(BuildContext context) async {
+  Future<AdminGoogleCredential> ensureSignedIn(BuildContext context) async {
     final cached = _cachedAccount;
     if (cached != null) return cached;
 

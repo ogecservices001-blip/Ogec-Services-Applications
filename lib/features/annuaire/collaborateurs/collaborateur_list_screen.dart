@@ -1,28 +1,19 @@
 import 'package:flutter/material.dart';
 import '../../../core/services/database_service.dart';
 import '../../../core/services/user_service.dart';
-import 'client_model.dart';
-import 'client_detail_screen.dart';
-import 'add_client_screen.dart';
+import 'collaborateur_model.dart';
+import 'collaborateur_detail_screen.dart';
+import 'add_collaborateur_screen.dart';
 
-class ClientListScreen extends StatefulWidget {
-  /// null : tous les clients. true : uniquement les clients hors contrat
-  /// (N°Affaire commençant par "362-"). false : uniquement les clients en
-  /// contrat entretien.
-  final bool? filterHorsContrat;
-  final String title;
-
-  const ClientListScreen({
-    super.key,
-    this.filterHorsContrat,
-    this.title = 'Répertoire Clients',
-  });
+class CollaborateurListScreen extends StatefulWidget {
+  const CollaborateurListScreen({super.key});
 
   @override
-  State<ClientListScreen> createState() => _ClientListScreenState();
+  State<CollaborateurListScreen> createState() =>
+      _CollaborateurListScreenState();
 }
 
-class _ClientListScreenState extends State<ClientListScreen> {
+class _CollaborateurListScreenState extends State<CollaborateurListScreen> {
   final DatabaseService _db = DatabaseService();
   final UserService _userService = UserService();
   String _searchQuery = "";
@@ -45,8 +36,8 @@ class _ClientListScreenState extends State<ClientListScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.title),
-        backgroundColor: Colors.green[700],
+        title: const Text('Collaborateurs'),
+        backgroundColor: Colors.indigo[700],
         foregroundColor: Colors.white,
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(70),
@@ -59,8 +50,8 @@ class _ClientListScreenState extends State<ClientListScreen> {
                 });
               },
               decoration: InputDecoration(
-                hintText: 'Rechercher un site ou une ville...',
-                prefixIcon: const Icon(Icons.search, color: Colors.green),
+                hintText: 'Rechercher un nom ou une commune...',
+                prefixIcon: const Icon(Icons.search, color: Colors.indigo),
                 filled: true,
                 fillColor: Colors.white,
                 contentPadding: const EdgeInsets.symmetric(vertical: 0),
@@ -73,29 +64,25 @@ class _ClientListScreenState extends State<ClientListScreen> {
           ),
         ),
       ),
-      body: StreamBuilder<List<ClientModel>>(
-        stream: _db.getClients(),
+      body: StreamBuilder<List<CollaborateurModel>>(
+        stream: _db.getCollaborateurs(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
-            return const Center(child: Text("Erreur de connexion à Firebase"));
+            return const Center(
+              child: Text("Erreur de chargement des collaborateurs"),
+            );
           }
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(
-              child: CircularProgressIndicator(color: Colors.green),
+              child: CircularProgressIndicator(color: Colors.indigo),
             );
           }
 
-          final allClients = snapshot.data ?? [];
-
-          final filtered = allClients.where((client) {
-            if (widget.filterHorsContrat != null &&
-                client.horsContrat != widget.filterHorsContrat) {
-              return false;
-            }
+          final allCollaborateurs = snapshot.data ?? [];
+          final filtered = allCollaborateurs.where((c) {
             final query = _searchQuery.toLowerCase();
-            return client.nom.toLowerCase().contains(query) ||
-                client.site.toLowerCase().contains(query) ||
-                client.commune.toLowerCase().contains(query);
+            return c.nomComplet.toLowerCase().contains(query) ||
+                c.communeHabitation.toLowerCase().contains(query);
           }).toList();
 
           if (filtered.isEmpty) {
@@ -103,17 +90,11 @@ class _ClientListScreenState extends State<ClientListScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    Icons.business_center_outlined,
-                    size: 60,
-                    color: Colors.grey[400],
-                  ),
+                  Icon(Icons.badge_outlined, size: 60, color: Colors.grey[400]),
                   const SizedBox(height: 16),
-                  Text(
-                    _searchQuery.isEmpty
-                        ? "Aucun client dans la base"
-                        : "Aucun résultat pour '$_searchQuery'",
-                    style: const TextStyle(color: Colors.grey),
+                  const Text(
+                    "Aucun collaborateur trouvé",
+                    style: TextStyle(color: Colors.grey),
                   ),
                 ],
               ),
@@ -124,7 +105,7 @@ class _ClientListScreenState extends State<ClientListScreen> {
             itemCount: filtered.length,
             padding: const EdgeInsets.all(10),
             itemBuilder: (context, index) {
-              final client = filtered[index];
+              final collaborateur = filtered[index];
               return Card(
                 elevation: 2,
                 margin: const EdgeInsets.only(bottom: 10),
@@ -132,22 +113,27 @@ class _ClientListScreenState extends State<ClientListScreen> {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: ListTile(
-                  leading: const CircleAvatar(
-                    backgroundColor: Colors.green,
-                    child: Icon(Icons.business, color: Colors.white),
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.indigo[100],
+                    child: const Icon(Icons.badge, color: Colors.indigo),
                   ),
                   title: Text(
-                    client.site,
+                    collaborateur.nomComplet,
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
-                  subtitle: Text("${client.nom} - ${client.commune}"),
+                  subtitle: Text(
+                    collaborateur.communeHabitation.isNotEmpty
+                        ? collaborateur.communeHabitation
+                        : "Non renseigné",
+                  ),
                   trailing: const Icon(Icons.arrow_forward_ios, size: 14),
                   onTap: () {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) =>
-                            ClientDetailScreen(client: client),
+                        builder: (context) => CollaborateurDetailScreen(
+                          collaborateur: collaborateur,
+                        ),
                       ),
                     );
                   },
@@ -163,11 +149,11 @@ class _ClientListScreenState extends State<ClientListScreen> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => const AddClientScreen(),
+                    builder: (context) => const AddCollaborateurScreen(),
                   ),
                 );
               },
-              backgroundColor: Colors.green[700],
+              backgroundColor: Colors.indigo[700],
               child: const Icon(Icons.add, color: Colors.white),
             )
           : null,

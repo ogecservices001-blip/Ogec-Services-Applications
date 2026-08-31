@@ -11,6 +11,13 @@ import '../cerfa/admin/admin_creer_modele_screen.dart';
 import '../cerfa/admin/admin_envoyer_cerfa_screen.dart';
 import '../cerfa/admin/admin_ajouter_equipement_screen.dart';
 import '../cerfa/admin/admin_verifier_dossiers_screen.dart';
+import '../cerfa/intervention/form_cerfa_screen.dart';
+import '../cerfa/consultation/visualiser_equipement_screen.dart';
+import '../cerfa/consultation/visualiser_bordereau_screen.dart';
+import '../annuaire/collaborateurs/collaborateur_list_screen.dart';
+import 'widgets/dashboard_grid_card.dart';
+import 'widgets/dashboard_section_screen.dart';
+import 'widgets/top_menu_card.dart';
 
 class AdminHomeScreen extends StatefulWidget {
   const AdminHomeScreen({super.key});
@@ -22,6 +29,8 @@ class AdminHomeScreen extends StatefulWidget {
 class _AdminHomeScreenState extends State<AdminHomeScreen> {
   final DatabaseService _db = DatabaseService();
   final UserService _userService = UserService();
+
+  static const _appBarColor = Color(0xFF0D47A1); // Colors.blue[900]
 
   @override
   Widget build(BuildContext context) {
@@ -49,125 +58,53 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             ),
             const SizedBox(height: 20),
 
-            Row(
-              children: [
-                _buildStatCard("Clients", _db.getClients(), Colors.green),
-                const SizedBox(width: 8),
-                _buildStatCard(
-                  "Fournisseurs",
-                  _db.getSuppliers(),
-                  Colors.blueGrey,
-                ),
-                const SizedBox(width: 8),
-                _buildStatCard(
-                  "Utilisateurs",
-                  _userService.getUsers().map((snap) => snap.docs),
-                  Colors.purple,
-                ),
-              ],
-            ),
-
-            _buildSectionTitle("CERFA"),
-            _buildActionTile(
-              "Point sur les CERFA",
-              Icons.pie_chart_outline,
-              Colors.blue,
-              () => Navigator.push(
+            TopMenuCard(
+              title: "Répertoire",
+              icon: Icons.folder_shared_outlined,
+              color: Colors.green,
+              subtitle: "Clients et fournisseurs",
+              onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => const AdminCerfaStatusScreen(),
+                  builder: (context) => DashboardSectionScreen(
+                    title: "Répertoire",
+                    appBarColor: _appBarColor,
+                    cards: _repertoireCards(context),
+                  ),
                 ),
               ),
             ),
-            _buildActionTile(
-              "Créer modèle CERFA",
-              Icons.note_add_outlined,
-              Colors.blue,
-              () => Navigator.push(
+            const SizedBox(height: 12),
+            TopMenuCard(
+              title: "CERFA",
+              icon: Icons.description_outlined,
+              color: Colors.blue,
+              subtitle: "Modèles, envois, équipements, vérifications",
+              onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => const AdminCreerModeleScreen(),
+                  builder: (context) => DashboardSectionScreen(
+                    title: "CERFA",
+                    appBarColor: _appBarColor,
+                    cards: _cerfaCards(context),
+                  ),
                 ),
               ),
             ),
-            _buildActionTile(
-              "Envoyer un CERFA rempli",
-              Icons.send_outlined,
-              Colors.blue,
-              () => Navigator.push(
+            const SizedBox(height: 12),
+            TopMenuCard(
+              title: "Administration utilisateur",
+              icon: Icons.admin_panel_settings_outlined,
+              color: Colors.purple,
+              subtitle: "Utilisateurs et outils de données",
+              onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => const AdminEnvoyerCerfaScreen(),
-                ),
-              ),
-            ),
-            _buildActionTile(
-              "Ajouter un équipement",
-              Icons.add_circle_outline,
-              Colors.blue,
-              () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const AdminAjouterEquipementScreen(),
-                ),
-              ),
-            ),
-            _buildActionTile(
-              "Vérifier les dossiers clients",
-              Icons.warning_amber_outlined,
-              Colors.blue,
-              () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const AdminVerifierDossiersScreen(),
-                ),
-              ),
-            ),
-
-            _buildSectionTitle("Répertoire"),
-            _buildActionTile(
-              "Gérer les Clients",
-              Icons.business,
-              Colors.green,
-              () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const ClientListScreen(),
-                ),
-              ),
-            ),
-            _buildActionTile(
-              "Gérer les Fournisseurs",
-              Icons.local_shipping,
-              Colors.blueGrey,
-              () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const SupplierListScreen(),
-                ),
-              ),
-            ),
-
-            _buildSectionTitle("Administration"),
-            _buildActionTile(
-              "Gérer les Utilisateurs",
-              Icons.people,
-              Colors.purple,
-              () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const UserManagementScreen(),
-                ),
-              ),
-            ),
-            _buildActionTile(
-              "Outils de Données (CSV)",
-              Icons.settings_suggest,
-              Colors.orange,
-              () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const AdminToolsScreen(),
+                  builder: (context) => DashboardSectionScreen(
+                    title: "Administration utilisateur",
+                    appBarColor: _appBarColor,
+                    cards: _administrationCards(context),
+                  ),
                 ),
               ),
             ),
@@ -177,71 +114,189 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
   }
 
-  Widget _buildSectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 30, bottom: 10),
-      child: Text(
-        title,
-        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+  List<DashboardGridCard> _cerfaCards(BuildContext context) => [
+    DashboardGridCard(
+      title: "Commencer nouveau CERFA",
+      icon: Icons.add_circle_outline,
+      color: Colors.green,
+      subtitle: "Nouvelle intervention",
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => FormCerfaScreen()),
       ),
-    );
-  }
+    ),
+    DashboardGridCard(
+      title: "Visualiser un équipement",
+      icon: Icons.search,
+      color: Colors.green,
+      subtitle: "Recherche",
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const VisualiserEquipementScreen(),
+        ),
+      ),
+    ),
+    DashboardGridCard(
+      title: "Visualiser un bordereau",
+      icon: Icons.picture_as_pdf_outlined,
+      color: Colors.green,
+      subtitle: "Consultation PDF",
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const VisualiserBordereauScreen(),
+        ),
+      ),
+    ),
+    DashboardGridCard(
+      title: "Point sur les CERFA",
+      icon: Icons.pie_chart_outline,
+      color: Colors.blue,
+      subtitle: "Vue d'ensemble",
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const AdminCerfaStatusScreen(),
+        ),
+      ),
+    ),
+    DashboardGridCard(
+      title: "Créer modèle CERFA",
+      icon: Icons.note_add_outlined,
+      color: Colors.blue,
+      subtitle: "Nouveau modèle",
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const AdminCreerModeleScreen(),
+        ),
+      ),
+    ),
+    DashboardGridCard(
+      title: "Envoyer un CERFA rempli",
+      icon: Icons.send_outlined,
+      color: Colors.blue,
+      subtitle: "Par email",
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const AdminEnvoyerCerfaScreen(),
+        ),
+      ),
+    ),
+    DashboardGridCard(
+      title: "Ajouter un équipement",
+      icon: Icons.add_circle_outline,
+      color: Colors.blue,
+      subtitle: "Nouveau site/équipement",
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const AdminAjouterEquipementScreen(),
+        ),
+      ),
+    ),
+    DashboardGridCard(
+      title: "Vérifier les dossiers clients",
+      icon: Icons.warning_amber_outlined,
+      color: Colors.blue,
+      subtitle: "Contrôle qualité",
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const AdminVerifierDossiersScreen(),
+        ),
+      ),
+    ),
+  ];
 
-  Widget _buildStatCard(
-    String title,
-    Stream<List<dynamic>> stream,
-    Color color,
-  ) {
-    return Expanded(
-      child: StreamBuilder<List<dynamic>>(
-        stream: stream,
-        builder: (context, snapshot) {
-          int count = snapshot.data?.length ?? 0;
-          return Container(
-            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(15),
-              border: Border(left: BorderSide(color: color, width: 5)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(color: Colors.grey, fontSize: 12),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  "$count",
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
+  List<DashboardGridCard> _repertoireCards(BuildContext context) => [
+    DashboardGridCard(
+      title: "Clients contrat entretien",
+      icon: Icons.business,
+      color: Colors.green,
+      countStream: _db.getClients().map(
+        (list) => list.where((c) => !c.horsContrat).toList(),
       ),
-    );
-  }
+      countLabel: (c) => "$c client(s)",
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const ClientListScreen(
+            filterHorsContrat: false,
+            title: "Clients contrat entretien",
+          ),
+        ),
+      ),
+    ),
+    DashboardGridCard(
+      title: "Clients hors contrat",
+      icon: Icons.business_center_outlined,
+      color: Colors.teal,
+      countStream: _db.getClients().map(
+        (list) => list.where((c) => c.horsContrat).toList(),
+      ),
+      countLabel: (c) => "$c client(s)",
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const ClientListScreen(
+            filterHorsContrat: true,
+            title: "Clients hors contrat",
+          ),
+        ),
+      ),
+    ),
+    DashboardGridCard(
+      title: "Fournisseurs",
+      icon: Icons.local_shipping,
+      color: Colors.blueGrey,
+      countStream: _db.getSuppliers(),
+      countLabel: (c) => "$c fournisseur(s)",
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const SupplierListScreen()),
+      ),
+    ),
+    DashboardGridCard(
+      title: "Collaborateurs",
+      icon: Icons.badge_outlined,
+      color: Colors.indigo,
+      countStream: _db.getCollaborateurs(),
+      countLabel: (c) => "$c collaborateur(s)",
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const CollaborateurListScreen(),
+        ),
+      ),
+    ),
+  ];
 
-  Widget _buildActionTile(
-    String title,
-    IconData icon,
-    Color color,
-    VoidCallback onTap,
-  ) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: ListTile(
-        leading: Icon(icon, color: color),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-        trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-        onTap: onTap,
+  List<DashboardGridCard> _administrationCards(BuildContext context) => [
+    DashboardGridCard(
+      title: "Gérer les Utilisateurs",
+      icon: Icons.people,
+      color: Colors.purple,
+      countStream: _userService.getUsers().map((snap) => snap.docs),
+      countLabel: (c) => "$c utilisateur(s)",
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const UserManagementScreen(),
+        ),
       ),
-    );
-  }
+    ),
+    DashboardGridCard(
+      title: "Outils de Données",
+      icon: Icons.settings_suggest,
+      color: Colors.orange,
+      subtitle: "Import / export",
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const AdminToolsScreen()),
+      ),
+    ),
+  ];
 }

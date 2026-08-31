@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../../features/annuaire/clients/client_model.dart';
 import '../../features/annuaire/suppliers/supplier_model.dart';
+import '../../features/annuaire/collaborateurs/collaborateur_model.dart';
 
 class DatabaseService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -50,44 +51,52 @@ class DatabaseService {
     await _db.collection('clients').doc(clientId).delete();
   }
 
-  Future<String> importClientsFromCSV(String csvData) async {
-    final List<String> lines = csvData.split(RegExp(r'\r?\n'));
+  /// Importe des clients depuis les lignes de la feuille "SITES" du
+  /// fichier Excel maître ("Base clients OGS ....xlsm") : [rows][0] est
+  /// l'en-tête, ignoré. Colonnes utilisées (index dans la feuille) :
+  /// 1 Client, 2 Site, 5 N°Affaire, 11 Commune site, 12 Code Postal site,
+  /// 13 Adresse site, 14 Complément d'adresse site, 19 Responsable
+  /// contrat, 20 Tel Fixe responsable contrat, 21 Portable responsable
+  /// contrat, 22 Courriel responsable contrat.
+  Future<String> importClientsFromExcelRows(List<List<String>> rows) async {
     final WriteBatch batch = _db.batch();
     final collection = _db.collection('clients');
     int successCount = 0;
     int errorCount = 0;
 
-    for (int i = 1; i < lines.length; i++) {
-      String line = lines[i].trim();
-      if (line.isEmpty) continue;
+    for (int i = 1; i < rows.length; i++) {
+      final values = rows[i];
+      if (values.isEmpty || values.every((v) => v.trim().isEmpty)) continue;
 
-      String separator = line.contains(';') ? ';' : ',';
-      List<String> values = line.split(separator);
-
-      if (values.length < 11) {
+      if (values.length < 23) {
         debugPrint(
-          "Ligne $i rejetée : ${values.length} colonnes trouvées (11 requises)",
+          "Ligne $i rejetée : ${values.length} colonnes trouvées (23 requises)",
         );
         errorCount++;
         continue;
       }
 
-      // Génération de l'ID unique basé sur le N° d'Affaire (index 2 du CSV)
-      final String customId = _generateIdFromAffaire(values[2]);
+      final nAffaire = values[5].trim();
+      if (nAffaire.isEmpty) {
+        errorCount++;
+        continue;
+      }
+
+      final String customId = _generateIdFromAffaire(nAffaire);
 
       final client = ClientModel(
         id: customId,
-        nom: values[0].trim(),
-        site: values[1].trim(),
-        nAffaire: values[2].trim(),
-        codePostal: values[3].trim(),
-        commune: values[4].trim(),
-        adresse: values[5].trim(),
-        complementAdresse: values[6].trim(),
-        responsableContrat: values[7].trim(),
-        telFixeResponsable: values[8].trim(),
-        portableResponsable: values[9].trim(),
-        courrielResponsable: values[10].trim(),
+        nom: values[1].trim(),
+        site: values[2].trim(),
+        nAffaire: nAffaire,
+        codePostal: values[12].trim(),
+        commune: values[11].trim(),
+        adresse: values[13].trim(),
+        complementAdresse: values[14].trim(),
+        responsableContrat: values[19].trim(),
+        telFixeResponsable: values[20].trim(),
+        portableResponsable: values[21].trim(),
+        courrielResponsable: values[22].trim(),
       );
 
       batch.set(collection.doc(customId), client.toMap());
@@ -98,7 +107,7 @@ class DatabaseService {
       await batch.commit();
       return "Succès : $successCount dossiers clients importés/mis à jour ($errorCount ignorés)";
     } else {
-      return "Échec : Aucune ligne valide. Vérifiez le format (11 colonnes).";
+      return "Échec : Aucune ligne valide. Vérifiez que la feuille SITES est bien sélectionnée.";
     }
   }
 
@@ -178,6 +187,92 @@ class DatabaseService {
       return "Succès : $successCount importés/mis à jour ($errorCount ignorés)";
     } else {
       return "Échec : Aucune ligne valide. Vérifiez le format (12 colonnes).";
+    }
+  }
+
+  // ==========================================
+  //             SECTION COLLABORATEURS
+  // ==========================================
+
+  Stream<List<CollaborateurModel>> getCollaborateurs() {
+    return _db
+        .collection('collaborateurs')
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map((doc) => CollaborateurModel.fromFirestore(doc))
+              .toList(),
+        );
+  }
+
+  Future<void> addCollaborateur(CollaborateurModel collaborateur) async {
+    await _db
+        .collection('collaborateurs')
+        .doc(collaborateur.id)
+        .set(collaborateur.toMap());
+  }
+
+  Future<void> updateCollaborateur(CollaborateurModel collaborateur) async {
+    await _db
+        .collection('collaborateurs')
+        .doc(collaborateur.id)
+        .update(collaborateur.toMap());
+  }
+
+  Future<void> deleteCollaborateur(String collaborateurId) async {
+    await _db.collection('collaborateurs').doc(collaborateurId).delete();
+  }
+
+  /// Importe des collaborateurs depuis des lignes déjà extraites d'un
+  /// fichier Excel (.xlsx/.xlsm) : [rows][0] est l'en-tête, ignoré ;
+  /// chaque ligne suivante attend 7 colonnes dans l'ordre Nom, Prénom,
+  /// Portable, Email OGEC, Email perso, Commune d'habitation, Véhicule.
+  Future<String> importCollaborateursFromRows(List<List<String>> rows) async {
+    final WriteBatch batch = _db.batch();
+    final collection = _db.collection('collaborateurs');
+    int successCount = 0;
+    int errorCount = 0;
+
+    for (int i = 1; i < rows.length; i++) {
+      final values = rows[i];
+      if (values.isEmpty || values.every((v) => v.trim().isEmpty)) continue;
+
+      if (values.length < 7) {
+        debugPrint(
+          "Ligne $i rejetée : ${values.length} colonnes trouvées (7 requises)",
+        );
+        errorCount++;
+        continue;
+      }
+
+      final nom = values[0].trim();
+      if (nom.isEmpty) {
+        errorCount++;
+        continue;
+      }
+
+      final String customId = _generateIdFromName("${values[0]}_${values[1]}");
+      final collaborateur = CollaborateurModel(
+        id: customId,
+        nom: nom,
+        prenom: values[1].trim(),
+        portable: values[2].trim(),
+        emailOgec: values[3].trim(),
+        emailPerso: values[4].trim(),
+        communeHabitation: values[5].trim(),
+        vehicule: values[6].trim(),
+      );
+
+      batch.set(collection.doc(customId), collaborateur.toMap());
+      successCount++;
+    }
+
+    if (successCount > 0) {
+      await batch.commit();
+      return "Succès : $successCount collaborateur(s) importé(s)/mis à jour ($errorCount ignorés)";
+    } else {
+      return "Échec : Aucune ligne valide. Vérifiez le format (7 colonnes : "
+          "Nom, Prénom, Portable, Email OGEC, Email perso, Commune, Véhicule).";
     }
   }
 

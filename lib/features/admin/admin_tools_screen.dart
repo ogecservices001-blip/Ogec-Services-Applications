@@ -65,7 +65,7 @@ class AdminToolsScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              "Importation CSV",
+              "Importation",
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 10),
@@ -75,7 +75,9 @@ class AdminToolsScreen extends StatelessWidget {
                   ListTile(
                     leading: const Icon(Icons.upload_file, color: Colors.blue),
                     title: const Text("Importer Clients"),
-                    subtitle: const Text("Charger un fichier .csv"),
+                    subtitle: const Text(
+                      "Charger le fichier Excel (.xlsx/.xlsm) — feuille SITES",
+                    ),
                     onTap: () => _handleImport(
                       context,
                       csvService.importClients,
@@ -94,6 +96,20 @@ class AdminToolsScreen extends StatelessWidget {
                       context,
                       csvService.importSuppliers,
                       "fournisseurs",
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(
+                      Icons.upload_file,
+                      color: Colors.indigo,
+                    ),
+                    title: const Text("Importer Collaborateurs"),
+                    subtitle: const Text("Charger un fichier Excel (.xlsx/.xlsm)"),
+                    onTap: () => _handleImport(
+                      context,
+                      csvService.importCollaborateurs,
+                      "collaborateurs",
                     ),
                   ),
                 ],

@@ -1,14 +1,14 @@
 import 'dart:convert';
 import 'dart:typed_data';
-import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
+import '../../../core/auth/admin_auth_service.dart';
 
 /// Envoie un email via l'API Gmail, en utilisant le compte Google de
 /// l'administrateur (connecté via AdminAuthService), sans passer par un
 /// serveur intermédiaire.
 class AdminMailService {
   Future<void> envoyerMail({
-    required GoogleSignInAccount compte,
+    required AdminGoogleCredential compte,
     required String destinataire,
     required String objet,
     required String corps,
@@ -38,7 +38,7 @@ class AdminMailService {
   /// (message MIME multipart, encodé en base64 comme attendu par
   /// l'API Gmail).
   Future<void> envoyerMailAvecPieceJointe({
-    required GoogleSignInAccount compte,
+    required AdminGoogleCredential compte,
     required String destinataire,
     required String objet,
     required String corps,
