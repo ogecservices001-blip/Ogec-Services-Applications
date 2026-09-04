@@ -102,9 +102,9 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 20),
               Text(
-                "OGEC SERVICES",
+                "Plateforme Multi-Fonctions",
                 style: GoogleFonts.oswald(
-                  fontSize: 32,
+                  fontSize: 24,
                   fontWeight: FontWeight.bold,
                 ),
               ),

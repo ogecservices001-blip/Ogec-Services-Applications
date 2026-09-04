@@ -10,12 +10,26 @@ class ClientListScreen extends StatefulWidget {
   /// (N°Affaire commençant par "362-"). false : uniquement les clients en
   /// contrat entretien.
   final bool? filterHorsContrat;
+
+  /// Si fourni, ne montre que les sites dont le nom client correspond
+  /// exactement (ex: liste des sites d'un client donné, regroupement
+  /// GMAO Client → Site).
+  final String? filterNom;
   final String title;
+  final Color color;
+
+  /// Si fourni, remplace la navigation par défaut vers [ClientDetailScreen]
+  /// (ex: pour ouvrir directement le parc GMAO d'un client au lieu de sa
+  /// fiche complète).
+  final void Function(ClientModel client)? onClientTap;
 
   const ClientListScreen({
     super.key,
     this.filterHorsContrat,
+    this.filterNom,
     this.title = 'Répertoire Clients',
+    this.color = Colors.green,
+    this.onClientTap,
   });
 
   @override
@@ -46,7 +60,7 @@ class _ClientListScreenState extends State<ClientListScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title),
-        backgroundColor: Colors.green[700],
+        backgroundColor: widget.color,
         foregroundColor: Colors.white,
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(70),
@@ -60,7 +74,7 @@ class _ClientListScreenState extends State<ClientListScreen> {
               },
               decoration: InputDecoration(
                 hintText: 'Rechercher un site ou une ville...',
-                prefixIcon: const Icon(Icons.search, color: Colors.green),
+                prefixIcon: Icon(Icons.search, color: widget.color),
                 filled: true,
                 fillColor: Colors.white,
                 contentPadding: const EdgeInsets.symmetric(vertical: 0),
@@ -80,8 +94,8 @@ class _ClientListScreenState extends State<ClientListScreen> {
             return const Center(child: Text("Erreur de connexion à Firebase"));
           }
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(color: Colors.green),
+            return Center(
+              child: CircularProgressIndicator(color: widget.color),
             );
           }
 
@@ -90,6 +104,9 @@ class _ClientListScreenState extends State<ClientListScreen> {
           final filtered = allClients.where((client) {
             if (widget.filterHorsContrat != null &&
                 client.horsContrat != widget.filterHorsContrat) {
+              return false;
+            }
+            if (widget.filterNom != null && client.nom != widget.filterNom) {
               return false;
             }
             final query = _searchQuery.toLowerCase();
@@ -132,9 +149,9 @@ class _ClientListScreenState extends State<ClientListScreen> {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: ListTile(
-                  leading: const CircleAvatar(
-                    backgroundColor: Colors.green,
-                    child: Icon(Icons.business, color: Colors.white),
+                  leading: CircleAvatar(
+                    backgroundColor: widget.color,
+                    child: const Icon(Icons.business, color: Colors.white),
                   ),
                   title: Text(
                     client.site,
@@ -143,6 +160,10 @@ class _ClientListScreenState extends State<ClientListScreen> {
                   subtitle: Text("${client.nom} - ${client.commune}"),
                   trailing: const Icon(Icons.arrow_forward_ios, size: 14),
                   onTap: () {
+                    if (widget.onClientTap != null) {
+                      widget.onClientTap!(client);
+                      return;
+                    }
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -167,7 +188,7 @@ class _ClientListScreenState extends State<ClientListScreen> {
                   ),
                 );
               },
-              backgroundColor: Colors.green[700],
+              backgroundColor: widget.color,
               child: const Icon(Icons.add, color: Colors.white),
             )
           : null,

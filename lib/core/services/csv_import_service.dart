@@ -110,19 +110,4 @@ class CsvImportService {
     }
     return null;
   }
-
-  /// Importation massive des Collaborateurs via un fichier Excel
-  /// (.xlsx/.xlsm) — colonnes attendues : Nom, Prénom, Portable, Email
-  /// OGEC, Email perso, Commune d'habitation, Véhicule.
-  Future<void> importCollaborateurs() async {
-    final rows = await _pickAndParseExcel();
-    if (rows != null && rows.isNotEmpty) {
-      try {
-        final result = await _db.importCollaborateursFromRows(rows);
-        debugPrint(result);
-      } catch (e) {
-        debugPrint("Erreur importation Batch Collaborateurs : $e");
-      }
-    }
-  }
 }

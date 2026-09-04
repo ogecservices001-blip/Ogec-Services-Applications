@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../core/services/database_service.dart';
+import '../../core/services/user_service.dart';
+import '../../core/services/update_service.dart';
 import '../annuaire/clients/client_list_screen.dart';
+import '../annuaire/clients/client_model.dart';
 import '../annuaire/suppliers/supplier_list_screen.dart';
-import '../annuaire/collaborateurs/collaborateur_list_screen.dart';
+import '../admin/annuaire_collegues_screen.dart';
 import '../cerfa/intervention/form_cerfa_screen.dart';
 import '../cerfa/consultation/visualiser_equipement_screen.dart';
 import '../cerfa/consultation/visualiser_bordereau_screen.dart';
 import '../cerfa/services/firestore_service.dart';
+import '../gmao/gmao_home_screen.dart';
 import 'widgets/dashboard_grid_card.dart';
 import 'widgets/dashboard_section_screen.dart';
 import 'widgets/top_menu_card.dart';
@@ -22,6 +26,7 @@ class TechnicienHomeScreen extends StatefulWidget {
 class _TechnicienHomeScreenState extends State<TechnicienHomeScreen> {
   final FirestoreService _firestoreService = FirestoreService();
   final DatabaseService _db = DatabaseService();
+  final UserService _userService = UserService();
 
   static const _appBarColor = Colors.black87;
 
@@ -32,6 +37,9 @@ class _TechnicienHomeScreenState extends State<TechnicienHomeScreen> {
   void initState() {
     super.initState();
     _chargerNomTechnicien();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) UpdateService().verifierEtProposer(context);
+    });
   }
 
   Future<void> _chargerNomTechnicien() async {
@@ -83,6 +91,17 @@ class _TechnicienHomeScreenState extends State<TechnicienHomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            TopMenuCard(
+              title: "GMAO",
+              icon: Icons.precision_manufacturing_outlined,
+              color: Colors.teal,
+              subtitle: "Parc équipements et relevés d'entretien",
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const GmaoHomeScreen()),
+              ),
+            ),
+            const SizedBox(height: 12),
             TopMenuCard(
               title: "Répertoire",
               icon: Icons.folder_shared_outlined,
@@ -167,13 +186,14 @@ class _TechnicienHomeScreenState extends State<TechnicienHomeScreen> {
       countStream: _db.getClients().map(
         (list) => list.where((c) => !c.horsContrat).toList(),
       ),
-      countLabel: (c) => "$c client(s)",
+      countLabelFromList: clientsSitesLabel,
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => const ClientListScreen(
+          builder: (context) => ClientListScreen(
             filterHorsContrat: false,
             title: "Clients contrat entretien",
+            color: Colors.green[700]!,
           ),
         ),
       ),
@@ -181,17 +201,18 @@ class _TechnicienHomeScreenState extends State<TechnicienHomeScreen> {
     DashboardGridCard(
       title: "Clients hors contrat",
       icon: Icons.business_center_outlined,
-      color: Colors.teal,
+      color: Colors.orange[700]!,
       countStream: _db.getClients().map(
         (list) => list.where((c) => c.horsContrat).toList(),
       ),
-      countLabel: (c) => "$c client(s)",
+      countLabelFromList: clientsSitesLabel,
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => const ClientListScreen(
+          builder: (context) => ClientListScreen(
             filterHorsContrat: true,
             title: "Clients hors contrat",
+            color: Colors.orange[700]!,
           ),
         ),
       ),
@@ -211,12 +232,12 @@ class _TechnicienHomeScreenState extends State<TechnicienHomeScreen> {
       title: "Collaborateurs",
       icon: Icons.badge_outlined,
       color: Colors.indigo,
-      countStream: _db.getCollaborateurs(),
+      countStream: _userService.getUsers().map((snap) => snap.docs),
       countLabel: (c) => "$c collaborateur(s)",
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => const CollaborateurListScreen(),
+          builder: (context) => const AnnuaireColleguesScreen(),
         ),
       ),
     ),

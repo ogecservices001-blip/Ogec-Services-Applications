@@ -11,12 +11,50 @@ class UserManagementScreen extends StatefulWidget {
 
 class _UserManagementScreenState extends State<UserManagementScreen> {
   final UserService _userService = UserService();
+  bool _migrationEnCours = false;
 
-  void _showUserForm({String? uid, String? currentName, String? currentRole}) {
-    final nameController = TextEditingController(text: currentName);
+  Future<void> _migrer() async {
+    setState(() => _migrationEnCours = true);
+    try {
+      final resultat = await _userService.migrerCollaborateursEtTechniciens();
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(resultat)));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erreur : $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _migrationEnCours = false);
+    }
+  }
+
+  void _showUserForm({
+    String? uid,
+    Map<String, dynamic>? current,
+  }) {
+    final nameController = TextEditingController(text: current?['name']);
     final emailController = TextEditingController();
     final passwordController = TextEditingController();
-    String selectedRole = currentRole ?? 'technicien';
+    final portableController = TextEditingController(
+      text: current?['portable'],
+    );
+    final emailPersoController = TextEditingController(
+      text: current?['emailPerso'],
+    );
+    final communeController = TextEditingController(
+      text: current?['communeHabitation'],
+    );
+    final vehiculeController = TextEditingController(
+      text: current?['vehicule'],
+    );
+    final qualiteController = TextEditingController(text: current?['qualite']);
+    String selectedRole = current?['role'] ?? 'technicien';
+    if (selectedRole == 'en_attente') selectedRole = 'technicien';
 
     showDialog(
       context: context,
@@ -37,7 +75,9 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                 if (uid == null) ...[
                   TextField(
                     controller: emailController,
-                    decoration: const InputDecoration(labelText: "Email"),
+                    decoration: const InputDecoration(
+                      labelText: "Email (compte de connexion)",
+                    ),
                   ),
                   TextField(
                     controller: passwordController,
@@ -46,8 +86,47 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
                     ),
                     obscureText: true,
                   ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    "Laisser email et mot de passe vides pour créer une "
+                    "fiche \"en attente\" (sans accès à l'appli).",
+                    style: TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
                   const SizedBox(height: 10),
                 ],
+                TextField(
+                  controller: portableController,
+                  decoration: const InputDecoration(labelText: "Portable"),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: emailPersoController,
+                  decoration: const InputDecoration(
+                    labelText: "Email personnel",
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: communeController,
+                  decoration: const InputDecoration(
+                    labelText: "Commune d'habitation",
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: vehiculeController,
+                  decoration: const InputDecoration(
+                    labelText: "Véhicule (immatriculation)",
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: qualiteController,
+                  decoration: const InputDecoration(
+                    labelText: "Qualité (ex: Frigoriste)",
+                  ),
+                ),
+                const SizedBox(height: 10),
                 const Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
@@ -85,16 +164,39 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
 
                 try {
                   if (uid == null) {
-                    await _userService.addUser(
-                      email: emailController.text.trim(),
-                      password: passwordController.text.trim(),
-                      role: selectedRole,
-                      name: nameController.text.trim(),
-                    );
+                    final email = emailController.text.trim();
+                    final password = passwordController.text.trim();
+                    if (email.isEmpty || password.isEmpty) {
+                      await _userService.addUserSansCompte(
+                        name: nameController.text.trim(),
+                        portable: portableController.text.trim(),
+                        emailPerso: emailPersoController.text.trim(),
+                        communeHabitation: communeController.text.trim(),
+                        vehicule: vehiculeController.text.trim(),
+                        qualite: qualiteController.text.trim(),
+                      );
+                    } else {
+                      await _userService.addUser(
+                        email: email,
+                        password: password,
+                        role: selectedRole,
+                        name: nameController.text.trim(),
+                        portable: portableController.text.trim(),
+                        emailPerso: emailPersoController.text.trim(),
+                        communeHabitation: communeController.text.trim(),
+                        vehicule: vehiculeController.text.trim(),
+                        qualite: qualiteController.text.trim(),
+                      );
+                    }
                   } else {
                     await _userService.updateUser(uid, {
                       'role': selectedRole,
                       'name': nameController.text.trim(),
+                      'portable': portableController.text.trim(),
+                      'emailPerso': emailPersoController.text.trim(),
+                      'communeHabitation': communeController.text.trim(),
+                      'vehicule': vehiculeController.text.trim(),
+                      'qualite': qualiteController.text.trim(),
                     });
                   }
 
@@ -122,6 +224,22 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
         title: const Text("Gestion Utilisateurs"),
         backgroundColor: Colors.purple[700],
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: _migrationEnCours
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2,
+                    ),
+                  )
+                : const Icon(Icons.refresh),
+            tooltip: 'Migrer collaborateurs + techniciens vers Utilisateurs',
+            onPressed: _migrationEnCours ? null : _migrer,
+          ),
+        ],
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: _userService.getUsers(),
@@ -135,22 +253,31 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
             itemBuilder: (context, index) {
               final user = users[index].data() as Map<String, dynamic>;
               final String userId = users[index].id;
+              final role = user['role'] ?? 'technicien';
+              final enAttente = role == 'en_attente';
 
               return Card(
                 child: ListTile(
-                  leading: const CircleAvatar(child: Icon(Icons.person)),
+                  leading: CircleAvatar(
+                    backgroundColor: enAttente ? Colors.grey[300] : null,
+                    child: Icon(
+                      enAttente ? Icons.person_outline : Icons.person,
+                    ),
+                  ),
                   title: Text(user['name'] ?? "Sans nom"),
-                  subtitle: Text("${user['email']} - ${user['role']}"),
+                  subtitle: Text(
+                    enAttente
+                        ? "En attente de compte"
+                        : "${user['email']} - $role"
+                              "${(user['qualite'] ?? '').toString().isNotEmpty ? ' - ${user['qualite']}' : ''}",
+                  ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(
                         icon: const Icon(Icons.edit, color: Colors.orange),
-                        onPressed: () => _showUserForm(
-                          uid: userId,
-                          currentName: user['name'],
-                          currentRole: user['role'],
-                        ),
+                        onPressed: () =>
+                            _showUserForm(uid: userId, current: user),
                       ),
                       IconButton(
                         icon: const Icon(Icons.delete, color: Colors.red),

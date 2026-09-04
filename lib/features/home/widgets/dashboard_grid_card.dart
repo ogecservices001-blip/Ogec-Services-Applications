@@ -15,6 +15,7 @@ class DashboardGridCard extends StatelessWidget {
     this.subtitle,
     this.countStream,
     this.countLabel,
+    this.countLabelFromList,
   });
 
   final String title;
@@ -29,6 +30,11 @@ class DashboardGridCard extends StatelessWidget {
   /// dynamique (ex: "158 client(s)").
   final Stream<List<dynamic>>? countStream;
   final String Function(int count)? countLabel;
+
+  /// Variante de [countLabel] qui reçoit la liste complète plutôt que sa
+  /// seule longueur (ex: pour compter les clients uniques en plus des
+  /// sites). Prioritaire sur [countLabel] si fourni.
+  final String Function(List<dynamic> items)? countLabelFromList;
 
   @override
   Widget build(BuildContext context) {
@@ -77,6 +83,17 @@ class DashboardGridCard extends StatelessWidget {
   }
 
   Widget _buildSubtitle() {
+    if (countStream != null && countLabelFromList != null) {
+      return StreamBuilder<List<dynamic>>(
+        stream: countStream,
+        builder: (context, snapshot) {
+          return Text(
+            countLabelFromList!(snapshot.data ?? const []),
+            style: TextStyle(color: Colors.grey[600], fontSize: 13),
+          );
+        },
+      );
+    }
     if (countStream != null && countLabel != null) {
       return StreamBuilder<List<dynamic>>(
         stream: countStream,

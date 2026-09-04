@@ -98,20 +98,6 @@ class AdminToolsScreen extends StatelessWidget {
                       "fournisseurs",
                     ),
                   ),
-                  const Divider(height: 1),
-                  ListTile(
-                    leading: const Icon(
-                      Icons.upload_file,
-                      color: Colors.indigo,
-                    ),
-                    title: const Text("Importer Collaborateurs"),
-                    subtitle: const Text("Charger un fichier Excel (.xlsx/.xlsm)"),
-                    onTap: () => _handleImport(
-                      context,
-                      csvService.importCollaborateurs,
-                      "collaborateurs",
-                    ),
-                  ),
                 ],
               ),
             ),

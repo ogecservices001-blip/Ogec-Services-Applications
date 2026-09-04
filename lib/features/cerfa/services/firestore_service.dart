@@ -100,14 +100,19 @@ class FirestoreService {
   }
 
   // === GESTION DES TECHNICIENS ===
+  // Le nom et la qualité vivent désormais dans la collection unique
+  // "users" (même UID que le compte de connexion), plus dans une
+  // collection "techniciens" séparée qui faisait doublon.
   Future<Map<String, String>?> getTechnicien(String uid) async {
-    final doc = await _firestore.collection('techniciens').doc(uid).get();
+    final doc = await _firestore.collection('users').doc(uid).get();
     if (!doc.exists) return null;
     final data = doc.data();
     if (data == null) return null;
     return {
-      'nom': data['nom'] ?? '',
-      'qualite': data['qualite'] ?? 'Frigoriste',
+      'nom': data['name'] ?? '',
+      'qualite': (data['qualite'] as String?)?.isNotEmpty == true
+          ? data['qualite']
+          : 'Frigoriste',
     };
   }
 
@@ -116,10 +121,9 @@ class FirestoreService {
     required String nom,
     String qualite = 'Frigoriste',
   }) async {
-    await _firestore.collection('techniciens').doc(uid).set({
-      'nom': nom,
+    await _firestore.collection('users').doc(uid).set({
+      'name': nom,
       'qualite': qualite,
-      'derniere_mise_a_jour': FieldValue.serverTimestamp(),
-    });
+    }, SetOptions(merge: true));
   }
 }

@@ -2,7 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../../features/annuaire/clients/client_model.dart';
 import '../../features/annuaire/suppliers/supplier_model.dart';
-import '../../features/annuaire/collaborateurs/collaborateur_model.dart';
 
 class DatabaseService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -53,11 +52,8 @@ class DatabaseService {
 
   /// Importe des clients depuis les lignes de la feuille "SITES" du
   /// fichier Excel maître ("Base clients OGS ....xlsm") : [rows][0] est
-  /// l'en-tête, ignoré. Colonnes utilisées (index dans la feuille) :
-  /// 1 Client, 2 Site, 5 N°Affaire, 11 Commune site, 12 Code Postal site,
-  /// 13 Adresse site, 14 Complément d'adresse site, 19 Responsable
-  /// contrat, 20 Tel Fixe responsable contrat, 21 Portable responsable
-  /// contrat, 22 Courriel responsable contrat.
+  /// l'en-tête, ignoré. Mapping des colonnes selon "Ordre affichage.xlsx"
+  /// (index Chrono = index dans la feuille SITES).
   Future<String> importClientsFromExcelRows(List<List<String>> rows) async {
     final WriteBatch batch = _db.batch();
     final collection = _db.collection('clients');
@@ -68,15 +64,9 @@ class DatabaseService {
       final values = rows[i];
       if (values.isEmpty || values.every((v) => v.trim().isEmpty)) continue;
 
-      if (values.length < 23) {
-        debugPrint(
-          "Ligne $i rejetée : ${values.length} colonnes trouvées (23 requises)",
-        );
-        errorCount++;
-        continue;
-      }
+      String v(int index) => index < values.length ? values[index].trim() : '';
 
-      final nAffaire = values[5].trim();
+      final nAffaire = v(5);
       if (nAffaire.isEmpty) {
         errorCount++;
         continue;
@@ -86,17 +76,70 @@ class DatabaseService {
 
       final client = ClientModel(
         id: customId,
-        nom: values[1].trim(),
-        site: values[2].trim(),
+        nom: v(1),
+        site: v(2),
         nAffaire: nAffaire,
-        codePostal: values[12].trim(),
-        commune: values[11].trim(),
-        adresse: values[13].trim(),
-        complementAdresse: values[14].trim(),
-        responsableContrat: values[19].trim(),
-        telFixeResponsable: values[20].trim(),
-        portableResponsable: values[21].trim(),
-        courrielResponsable: values[22].trim(),
+        commune: v(11),
+        codePostal: v(12),
+        adresse: v(13),
+        complementAdresse: v(14),
+        epiSpecifique: v(35),
+        habilitationSpecifique: v(36),
+        moyenAcces: v(37),
+        jourAcces: v(38),
+        heuresAcces: v(39),
+        delaiIntervention: v(54),
+        interlocuteurSite: v(15),
+        telFixeInterlocuteurSite: v(16),
+        portableInterlocuteurSite: v(17),
+        courrielInterlocuteurSite: v(18),
+        freqEntretienAn: v(10),
+        interlocuteurTiers: v(31),
+        telFixeTiers: v(32),
+        portableTiers: v(33),
+        courrielTiers: v(34),
+        remarquesLibres: v(66),
+        nbHeuresVendues: v(6),
+        nbHeuresVenduesAssistant: v(7),
+        qteHeuresProgrammees: v(8),
+        qteHeuresRestantes: v(9),
+        tauxHoraireRegie: v(48),
+        tauxHoraireVendu: v(47),
+        forfaitDeplacement: v(49),
+        dateOffre: v(40),
+        datePriseEffetContrat: v(41),
+        dateFinContrat: v(44),
+        dureeContrat: v(42),
+        montantContratAv: v(43),
+        referenceOffreOgs: v(50),
+        responsableContrat: v(19),
+        telFixeResponsable: v(20),
+        portableResponsable: v(21),
+        courrielResponsable: v(22),
+        adresseFacturation: v(25),
+        codePostalFacturation: v(24),
+        communeFacturation: v(23),
+        complementAdresseFacturation: v(26),
+        interlocuteurFacturation: v(27),
+        telFixeInterlocuteurFacturation: v(28),
+        portableInterlocuteurFacturation: v(29),
+        courrielInterlocuteurFacturation: v(30),
+        freqFactuAnnuelle: v(53),
+        dateRevision: v(57),
+        formuleRevisionEntretien: v(55),
+        formuleRevisionDepannage: v(56),
+        dateIndiceS: v(58),
+        valeurIndiceS: v(59),
+        dateIndiceCh: v(60),
+        valeurIndiceCh: v(61),
+        dateIndiceSPrime: v(45),
+        valeurIndiceSPrime: v(51),
+        dateIndiceChPrime: v(46),
+        valeurIndiceChPrime: v(52),
+        montantContratAvRevise: v(62),
+        tauxHoraireRevise: v(63),
+        forfaitDeplacementRevise: v(64),
+        modifRiOuBg: v(65),
       );
 
       batch.set(collection.doc(customId), client.toMap());
@@ -187,92 +230,6 @@ class DatabaseService {
       return "Succès : $successCount importés/mis à jour ($errorCount ignorés)";
     } else {
       return "Échec : Aucune ligne valide. Vérifiez le format (12 colonnes).";
-    }
-  }
-
-  // ==========================================
-  //             SECTION COLLABORATEURS
-  // ==========================================
-
-  Stream<List<CollaborateurModel>> getCollaborateurs() {
-    return _db
-        .collection('collaborateurs')
-        .snapshots()
-        .map(
-          (snapshot) => snapshot.docs
-              .map((doc) => CollaborateurModel.fromFirestore(doc))
-              .toList(),
-        );
-  }
-
-  Future<void> addCollaborateur(CollaborateurModel collaborateur) async {
-    await _db
-        .collection('collaborateurs')
-        .doc(collaborateur.id)
-        .set(collaborateur.toMap());
-  }
-
-  Future<void> updateCollaborateur(CollaborateurModel collaborateur) async {
-    await _db
-        .collection('collaborateurs')
-        .doc(collaborateur.id)
-        .update(collaborateur.toMap());
-  }
-
-  Future<void> deleteCollaborateur(String collaborateurId) async {
-    await _db.collection('collaborateurs').doc(collaborateurId).delete();
-  }
-
-  /// Importe des collaborateurs depuis des lignes déjà extraites d'un
-  /// fichier Excel (.xlsx/.xlsm) : [rows][0] est l'en-tête, ignoré ;
-  /// chaque ligne suivante attend 7 colonnes dans l'ordre Nom, Prénom,
-  /// Portable, Email OGEC, Email perso, Commune d'habitation, Véhicule.
-  Future<String> importCollaborateursFromRows(List<List<String>> rows) async {
-    final WriteBatch batch = _db.batch();
-    final collection = _db.collection('collaborateurs');
-    int successCount = 0;
-    int errorCount = 0;
-
-    for (int i = 1; i < rows.length; i++) {
-      final values = rows[i];
-      if (values.isEmpty || values.every((v) => v.trim().isEmpty)) continue;
-
-      if (values.length < 7) {
-        debugPrint(
-          "Ligne $i rejetée : ${values.length} colonnes trouvées (7 requises)",
-        );
-        errorCount++;
-        continue;
-      }
-
-      final nom = values[0].trim();
-      if (nom.isEmpty) {
-        errorCount++;
-        continue;
-      }
-
-      final String customId = _generateIdFromName("${values[0]}_${values[1]}");
-      final collaborateur = CollaborateurModel(
-        id: customId,
-        nom: nom,
-        prenom: values[1].trim(),
-        portable: values[2].trim(),
-        emailOgec: values[3].trim(),
-        emailPerso: values[4].trim(),
-        communeHabitation: values[5].trim(),
-        vehicule: values[6].trim(),
-      );
-
-      batch.set(collection.doc(customId), collaborateur.toMap());
-      successCount++;
-    }
-
-    if (successCount > 0) {
-      await batch.commit();
-      return "Succès : $successCount collaborateur(s) importé(s)/mis à jour ($errorCount ignorés)";
-    } else {
-      return "Échec : Aucune ligne valide. Vérifiez le format (7 colonnes : "
-          "Nom, Prénom, Portable, Email OGEC, Email perso, Commune, Véhicule).";
     }
   }
 

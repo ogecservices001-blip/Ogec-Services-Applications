@@ -46,6 +46,8 @@ app.*.map.json
 
 # Secrets - do not commit
 assets/service_account.json
+android/key.properties
+android/keystore/
 
 # Build artifacts / local caches
 android/build/

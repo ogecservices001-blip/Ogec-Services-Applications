@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../core/services/database_service.dart';
 import '../../core/services/user_service.dart';
+import '../../core/services/update_service.dart';
 import '../annuaire/clients/client_list_screen.dart';
+import '../annuaire/clients/client_model.dart';
 import '../annuaire/suppliers/supplier_list_screen.dart';
 import '../admin/user_management_screen.dart';
 import '../admin/admin_tools_screen.dart';
+import '../admin/annuaire_collegues_screen.dart';
 import '../cerfa/admin/admin_cerfa_status_screen.dart';
 import '../cerfa/admin/admin_creer_modele_screen.dart';
 import '../cerfa/admin/admin_envoyer_cerfa_screen.dart';
@@ -14,7 +17,9 @@ import '../cerfa/admin/admin_verifier_dossiers_screen.dart';
 import '../cerfa/intervention/form_cerfa_screen.dart';
 import '../cerfa/consultation/visualiser_equipement_screen.dart';
 import '../cerfa/consultation/visualiser_bordereau_screen.dart';
-import '../annuaire/collaborateurs/collaborateur_list_screen.dart';
+import '../gmao/types_equipement/types_equipement_list_screen.dart';
+import '../gmao/references_horaires/references_horaires_list_screen.dart';
+import '../gmao/gmao_home_screen.dart';
 import 'widgets/dashboard_grid_card.dart';
 import 'widgets/dashboard_section_screen.dart';
 import 'widgets/top_menu_card.dart';
@@ -31,6 +36,14 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   final UserService _userService = UserService();
 
   static const _appBarColor = Color(0xFF0D47A1); // Colors.blue[900]
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) UpdateService().verifierEtProposer(context);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -58,6 +71,17 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             ),
             const SizedBox(height: 20),
 
+            TopMenuCard(
+              title: "GMAO",
+              icon: Icons.precision_manufacturing_outlined,
+              color: Colors.teal,
+              subtitle: "Parc équipements et relevés d'entretien",
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const GmaoHomeScreen()),
+              ),
+            ),
+            const SizedBox(height: 12),
             TopMenuCard(
               title: "Répertoire",
               icon: Icons.folder_shared_outlined,
@@ -219,13 +243,14 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       countStream: _db.getClients().map(
         (list) => list.where((c) => !c.horsContrat).toList(),
       ),
-      countLabel: (c) => "$c client(s)",
+      countLabelFromList: clientsSitesLabel,
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => const ClientListScreen(
+          builder: (context) => ClientListScreen(
             filterHorsContrat: false,
             title: "Clients contrat entretien",
+            color: Colors.green,
           ),
         ),
       ),
@@ -233,17 +258,18 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     DashboardGridCard(
       title: "Clients hors contrat",
       icon: Icons.business_center_outlined,
-      color: Colors.teal,
+      color: Colors.orange[700]!,
       countStream: _db.getClients().map(
         (list) => list.where((c) => c.horsContrat).toList(),
       ),
-      countLabel: (c) => "$c client(s)",
+      countLabelFromList: clientsSitesLabel,
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => const ClientListScreen(
+          builder: (context) => ClientListScreen(
             filterHorsContrat: true,
             title: "Clients hors contrat",
+            color: Colors.orange[700]!,
           ),
         ),
       ),
@@ -263,12 +289,12 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       title: "Collaborateurs",
       icon: Icons.badge_outlined,
       color: Colors.indigo,
-      countStream: _db.getCollaborateurs(),
+      countStream: _userService.getUsers().map((snap) => snap.docs),
       countLabel: (c) => "$c collaborateur(s)",
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => const CollaborateurListScreen(),
+          builder: (context) => const AnnuaireColleguesScreen(),
         ),
       ),
     ),
@@ -296,6 +322,30 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute(builder: (context) => const AdminToolsScreen()),
+      ),
+    ),
+    DashboardGridCard(
+      title: "GMAO — Référentiel équipements",
+      icon: Icons.precision_manufacturing_outlined,
+      color: Colors.teal,
+      subtitle: "Bêta — Lot 1 en cours",
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const TypesEquipementListScreen(),
+        ),
+      ),
+    ),
+    DashboardGridCard(
+      title: "GMAO — Heures de référence",
+      icon: Icons.schedule_outlined,
+      color: Colors.teal,
+      subtitle: "Barème Tech/Assistant par équipement",
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const ReferencesHorairesListScreen(),
+        ),
       ),
     ),
   ];
