@@ -93,7 +93,7 @@ class _ClientEquipementsListScreenState
                       context,
                       MaterialPageRoute(
                         builder: (context) => ImportEquipementsScreen(
-                          client: client,
+                          sites: [client],
                           types: types,
                         ),
                       ),

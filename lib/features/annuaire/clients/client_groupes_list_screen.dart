@@ -1,44 +1,54 @@
 import 'package:flutter/material.dart';
-import '../../core/services/database_service.dart';
-import '../../core/services/user_service.dart';
-import '../../core/widgets/confirm_delete_dialog.dart';
-import '../annuaire/clients/client_model.dart';
-import '../annuaire/clients/client_list_screen.dart';
-import 'equipements/client_equipements_list_screen.dart';
-import 'equipements/equipement_export_service.dart';
-import 'equipements/import_equipements_screen.dart';
-import 'gmao_database_service.dart';
+import '../../../core/services/csv_import_service.dart';
+import '../../../core/services/database_service.dart';
+import '../../../core/services/repertoire_export_service.dart';
+import '../../../core/services/user_service.dart';
+import '../../../core/widgets/confirm_delete_dialog.dart';
+import 'client_detail_screen.dart';
+import 'client_list_screen.dart';
+import 'client_model.dart';
 
-/// Point d'entrée GMAO : regroupe les sites par client (même champ
-/// `nom`, sans nouvelle collection — un client "physique" a souvent
-/// plusieurs sites, chacun étant aujourd'hui un document séparé), pour
-/// un statut de contrat donné. Tape un client → liste de ses sites →
-/// parc d'un site (groupé par Groupe).
-class GmaoClientsScreen extends StatefulWidget {
-  /// true : uniquement les sites hors contrat (N°Affaire "362-"). false :
-  /// uniquement les sites en contrat entretien.
-  final bool filterHorsContrat;
+const List<Color> _couleursGroupes = [
+  Colors.teal,
+  Colors.indigo,
+  Colors.orange,
+  Colors.purple,
+  Colors.brown,
+  Colors.cyan,
+  Colors.deepOrange,
+  Colors.green,
+];
+
+/// Répertoire : regroupe les sites par client (même champ `nom`, sans
+/// nouvelle collection — miroir de [GmaoClientsScreen]) pour un statut
+/// de contrat donné. Tape une étiquette → fiche du site (un seul) ou
+/// liste de ses sites (plusieurs). Import/export/suppression par
+/// étiquette réservés à l'admin.
+class ClientGroupesListScreen extends StatefulWidget {
+  final bool? filterHorsContrat;
   final String title;
   final Color color;
 
-  const GmaoClientsScreen({
+  const ClientGroupesListScreen({
     super.key,
-    required this.filterHorsContrat,
-    required this.title,
-    this.color = Colors.teal,
+    this.filterHorsContrat,
+    this.title = 'Répertoire Clients',
+    this.color = Colors.green,
   });
 
   @override
-  State<GmaoClientsScreen> createState() => _GmaoClientsScreenState();
+  State<ClientGroupesListScreen> createState() =>
+      _ClientGroupesListScreenState();
 }
 
-class _GmaoClientsScreenState extends State<GmaoClientsScreen> {
+class _ClientGroupesListScreenState extends State<ClientGroupesListScreen> {
   final DatabaseService _db = DatabaseService();
+  final CsvImportService _csvImportService = CsvImportService();
+  final RepertoireExportService _exportService = RepertoireExportService();
   final UserService _userService = UserService();
-  final GmaoDatabaseService _gmaoDb = GmaoDatabaseService();
   String _recherche = '';
   bool _isAdmin = false;
-  String? _exportEnCours;
+  String? _actionEnCours;
 
   @override
   void initState() {
@@ -51,69 +61,42 @@ class _GmaoClientsScreenState extends State<GmaoClientsScreen> {
     if (mounted) setState(() => _isAdmin = isAdmin);
   }
 
-  Future<void> _exporterTousLesSites(
-    String nomClient,
-    List<ClientModel> sitesClient,
-  ) async {
-    setState(() => _exportEnCours = nomClient);
+  Future<void> _importerPourClient(String nom) async {
+    setState(() => _actionEnCours = 'import-$nom');
     try {
-      final types = await _gmaoDb.getTypesEquipement().first;
-      final typesById = {for (final t in types) t.id: t};
-
-      final lignes = <EquipementAvecSite>[];
-      for (final site in sitesClient) {
-        final equipements = await _gmaoDb
-            .getEquipementsForClient(site.id)
-            .first;
-        lignes.addAll(
-          equipements.map((eq) => EquipementAvecSite(eq, site)),
-        );
-      }
-
-      EquipementExportService().exporter(
-        lignes: lignes,
-        typesById: typesById,
-        nomFichier: '${nomClient}_tous_sites_equipements.xlsx',
+      await _csvImportService.importClients(filterNom: nom);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Import terminé pour $nom')),
       );
     } finally {
-      if (mounted) setState(() => _exportEnCours = null);
+      if (mounted) setState(() => _actionEnCours = null);
     }
   }
 
-  Future<void> _importerPourClient(List<ClientModel> sitesClient) async {
-    final types = await _gmaoDb.getTypesEquipement().first;
-    if (!mounted) return;
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) =>
-            ImportEquipementsScreen(sites: sitesClient, types: types),
-      ),
-    );
+  void _exporterPourClient(String nom, List<ClientModel> sitesClient) {
+    _exportService.exporterClients(sitesClient, '${nom}_sites.xlsx');
   }
 
   Future<void> _supprimerPourClient(
-    String nomClient,
+    String nom,
     List<ClientModel> sitesClient,
   ) async {
     final confirme = await confirmerSuppressionMasse(
       context: context,
-      titre: 'Supprimer les équipements de $nomClient',
+      titre: 'Supprimer $nom du Répertoire',
       message:
-          'Supprime tous les équipements de tous les sites de "$nomClient" '
-          '(${sitesClient.length} site(s)) — action irréversible.',
-      motConfirmation: nomClient,
+          'Supprime la fiche Répertoire de tous les sites de "$nom" '
+          '(${sitesClient.length} site(s)) — action irréversible. '
+          "N'affecte pas les équipements GMAO déjà enregistrés.",
+      motConfirmation: nom,
     );
     if (!confirme || !mounted) return;
 
     final messenger = ScaffoldMessenger.of(context);
-    final total = await _gmaoDb.supprimerEquipementsPourClients(
-      sitesClient.map((s) => s.id).toList(),
-    );
+    await _db.deleteClients(sitesClient.map((s) => s.id).toList());
     if (!mounted) return;
-    messenger.showSnackBar(
-      SnackBar(content: Text('$total équipement(s) supprimé(s)')),
-    );
+    messenger.showSnackBar(SnackBar(content: Text('$nom supprimé')));
   }
 
   @override
@@ -129,7 +112,8 @@ class _GmaoClientsScreenState extends State<GmaoClientsScreen> {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             child: TextField(
-              onChanged: (v) => setState(() => _recherche = v.toLowerCase().trim()),
+              onChanged: (v) =>
+                  setState(() => _recherche = v.toLowerCase().trim()),
               decoration: InputDecoration(
                 hintText: 'Rechercher un client...',
                 prefixIcon: Icon(Icons.search, color: widget.color),
@@ -153,7 +137,11 @@ class _GmaoClientsScreenState extends State<GmaoClientsScreen> {
           }
 
           final sites = snapshot.data!
-              .where((s) => s.horsContrat == widget.filterHorsContrat)
+              .where(
+                (s) =>
+                    widget.filterHorsContrat == null ||
+                    s.horsContrat == widget.filterHorsContrat,
+              )
               .toList();
 
           final sitesParClient = <String, List<ClientModel>>{};
@@ -192,10 +180,15 @@ class _GmaoClientsScreenState extends State<GmaoClientsScreen> {
                   leading: Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: widget.color.withValues(alpha: 0.12),
+                      color:
+                          _couleursGroupes[index % _couleursGroupes.length]
+                              .withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(Icons.apartment, color: widget.color),
+                    child: Icon(
+                      Icons.apartment,
+                      color: _couleursGroupes[index % _couleursGroupes.length],
+                    ),
                   ),
                   title: Text(
                     nom,
@@ -209,7 +202,7 @@ class _GmaoClientsScreenState extends State<GmaoClientsScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       if (_isAdmin)
-                        _exportEnCours == nom
+                        _actionEnCours == 'import-$nom'
                             ? const SizedBox(
                                 width: 20,
                                 height: 20,
@@ -218,17 +211,17 @@ class _GmaoClientsScreenState extends State<GmaoClientsScreen> {
                                 ),
                               )
                             : IconButton(
-                                icon: const Icon(Icons.download),
+                                icon: const Icon(Icons.upload_file),
                                 tooltip:
-                                    'Exporter tous les équipements de ce client',
-                                onPressed: () =>
-                                    _exporterTousLesSites(nom, sitesClient),
+                                    'Rafraîchir ce client depuis le fichier maître',
+                                onPressed: () => _importerPourClient(nom),
                               ),
                       if (_isAdmin)
                         IconButton(
-                          icon: const Icon(Icons.upload_file),
-                          tooltip: 'Importer des équipements pour ce client',
-                          onPressed: () => _importerPourClient(sitesClient),
+                          icon: const Icon(Icons.download),
+                          tooltip: 'Exporter les sites de ce client',
+                          onPressed: () =>
+                              _exporterPourClient(nom, sitesClient),
                         ),
                       if (_isAdmin)
                         IconButton(
@@ -236,7 +229,7 @@ class _GmaoClientsScreenState extends State<GmaoClientsScreen> {
                             Icons.delete_outline,
                             color: Colors.red,
                           ),
-                          tooltip: 'Supprimer les équipements de ce client',
+                          tooltip: 'Supprimer ce client du Répertoire',
                           onPressed: () =>
                               _supprimerPourClient(nom, sitesClient),
                         ),
@@ -248,9 +241,8 @@ class _GmaoClientsScreenState extends State<GmaoClientsScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => ClientEquipementsListScreen(
-                            client: sitesClient.first,
-                          ),
+                          builder: (context) =>
+                              ClientDetailScreen(client: sitesClient.first),
                         ),
                       );
                       return;
@@ -263,13 +255,6 @@ class _GmaoClientsScreenState extends State<GmaoClientsScreen> {
                           filterHorsContrat: widget.filterHorsContrat,
                           title: nom,
                           color: widget.color,
-                          onClientTap: (site) => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) =>
-                                  ClientEquipementsListScreen(client: site),
-                            ),
-                          ),
                         ),
                       ),
                     );

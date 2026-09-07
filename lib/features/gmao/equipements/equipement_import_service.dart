@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:excel/excel.dart' as excel_pkg;
 import 'package:file_picker/file_picker.dart';
+import '../../annuaire/clients/client_model.dart';
 import '../types_equipement/type_equipement_model.dart';
 import 'equipement_model.dart';
 
@@ -45,6 +46,13 @@ class LigneImport {
   final String? typeEquipementId;
   final Map<String, String> champsEnTete;
 
+  /// Colonnes "Client"/"Site" du fichier (présentes seulement dans les
+  /// exports multi-sites) — utilisées pour ranger automatiquement
+  /// chaque ligne sur le bon site quand l'import porte sur plusieurs
+  /// sites à la fois.
+  final String clientBrut;
+  final String siteBrut;
+
   LigneImport({
     required this.nom,
     required this.numeroEquipement,
@@ -53,6 +61,8 @@ class LigneImport {
     required this.typeDeReleveBrut,
     required this.typeEquipementId,
     required this.champsEnTete,
+    this.clientBrut = '',
+    this.siteBrut = '',
   });
 }
 
@@ -65,7 +75,13 @@ class DiffChamp {
 
 class DiffAjout {
   final LigneImport ligne;
-  DiffAjout(this.ligne);
+
+  /// Id du site (document `clients`) où créer ce nouvel équipement —
+  /// résolu par [EquipementImportService.calculerDiff] : le site unique
+  /// fourni, ou celui déterminé via les colonnes Client/Site en import
+  /// multi-sites.
+  final String clientId;
+  DiffAjout(this.ligne, {required this.clientId});
 }
 
 class DiffModification {
@@ -176,6 +192,8 @@ class EquipementImportService {
           typeDeReleveBrut: typeDeReleveBrut,
           typeEquipementId: typeEquipementId,
           champsEnTete: champs,
+          clientBrut: valeur(row, 'client'),
+          siteBrut: valeur(row, 'site'),
         ),
       );
     }
@@ -183,13 +201,80 @@ class EquipementImportService {
     return lignes;
   }
 
-  /// Compare les lignes importées à l'existant Firestore pour ce client
-  /// et détermine ajouts / modifications / suppressions proposées.
-  /// Ne touche jamais à `notesEquipement` (géré uniquement dans l'appli).
+  /// Compare les lignes importées à l'existant Firestore pour un ou
+  /// plusieurs sites et détermine ajouts / modifications / suppressions
+  /// proposées. Un seul site fourni : toutes les lignes lui sont
+  /// rattachées (comportement historique, colonnes Client/Site
+  /// ignorées). Plusieurs sites : chaque ligne est rangée sur le bon
+  /// site via ses colonnes Client/Site (nom exact, insensible à la
+  /// casse/espaces) — une ligne sans correspondance est ignorée avec un
+  /// avertissement plutôt que déclenchée à l'aveugle sur le mauvais
+  /// site.
   ResultatDiff calculerDiff({
+    required List<LigneImport> lignes,
+    required List<ClientModel> sites,
+    required Map<String, List<EquipementModel>> existantsParSite,
+    required Map<String, TypeEquipementModel> typesById,
+  }) {
+    String normaliser(String s) => s.trim().toLowerCase();
+
+    final lignesParSite = <String, List<LigneImport>>{};
+    final avertissementsGlobaux = <String>[];
+
+    if (sites.length == 1) {
+      lignesParSite[sites.first.id] = lignes;
+    } else {
+      final siteParCle = <String, ClientModel>{
+        for (final s in sites) '${normaliser(s.nom)}|${normaliser(s.site)}': s,
+      };
+      for (final ligne in lignes) {
+        final cle = '${normaliser(ligne.clientBrut)}|${normaliser(ligne.siteBrut)}';
+        final site = siteParCle[cle];
+        if (site == null) {
+          final repere = ligne.numeroEquipement.isNotEmpty
+              ? ligne.numeroEquipement
+              : ligne.nom;
+          avertissementsGlobaux.add(
+            'Client/Site "${ligne.clientBrut} / ${ligne.siteBrut}" '
+            'introuvable pour "$repere" — ligne ignorée',
+          );
+          continue;
+        }
+        lignesParSite.putIfAbsent(site.id, () => []).add(ligne);
+      }
+    }
+
+    final ajouts = <DiffAjout>[];
+    final modifications = <DiffModification>[];
+    final suppressions = <DiffSuppression>[];
+    final avertissements = <String>[...avertissementsGlobaux];
+
+    for (final site in sites) {
+      final resultat = _calculerDiffPourUnSite(
+        lignes: lignesParSite[site.id] ?? const [],
+        existants: existantsParSite[site.id] ?? const [],
+        typesById: typesById,
+        clientId: site.id,
+      );
+      ajouts.addAll(resultat.ajouts);
+      modifications.addAll(resultat.modifications);
+      suppressions.addAll(resultat.suppressions);
+      avertissements.addAll(resultat.avertissements);
+    }
+
+    return ResultatDiff(
+      ajouts: ajouts,
+      modifications: modifications,
+      suppressions: suppressions,
+      avertissements: avertissements,
+    );
+  }
+
+  ResultatDiff _calculerDiffPourUnSite({
     required List<LigneImport> lignes,
     required List<EquipementModel> existants,
     required Map<String, TypeEquipementModel> typesById,
+    required String clientId,
   }) {
     final avertissements = <String>[];
     final ajouts = <DiffAjout>[];
@@ -232,7 +317,7 @@ class EquipementImportService {
       final existant = existantsParNumero[numero];
 
       if (existant == null) {
-        ajouts.add(DiffAjout(ligne));
+        ajouts.add(DiffAjout(ligne, clientId: clientId));
         continue;
       }
 

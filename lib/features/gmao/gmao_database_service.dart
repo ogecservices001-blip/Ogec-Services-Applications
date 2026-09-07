@@ -32,6 +32,27 @@ class GmaoDatabaseService {
     await _db.collection('equipements').doc(id).delete();
   }
 
+  /// Supprime tous les équipements rattachés aux sites donnés (un ou
+  /// plusieurs `clientId`) — pour "vider" le parc d'un client (toutes
+  /// ses sites) ou de la GMAO entière en une fois.
+  Future<int> supprimerEquipementsPourClients(List<String> clientIds) async {
+    var total = 0;
+    for (final clientId in clientIds) {
+      final snapshot = await _db
+          .collection('equipements')
+          .where('clientId', isEqualTo: clientId)
+          .get();
+      if (snapshot.docs.isEmpty) continue;
+      final batch = _db.batch();
+      for (final doc in snapshot.docs) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+      total += snapshot.docs.length;
+    }
+    return total;
+  }
+
   Stream<List<TypeEquipementModel>> getTypesEquipement() {
     return _db
         .collection('types_equipement')

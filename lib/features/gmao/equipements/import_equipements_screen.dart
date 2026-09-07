@@ -5,17 +5,19 @@ import '../types_equipement/type_equipement_model.dart';
 import 'equipement_model.dart';
 import 'equipement_import_service.dart';
 
-/// Écran récapitulatif d'un import "Sommaire" pour un client : montre
-/// les ajouts / modifications / suppressions détectés par rapport à
-/// l'existant, avec une case à cocher par équipement (pas par champ),
-/// avant toute écriture en base.
+/// Écran récapitulatif d'un import "Sommaire" pour un ou plusieurs
+/// sites : montre les ajouts / modifications / suppressions détectés
+/// par rapport à l'existant, avec une case à cocher par équipement (pas
+/// par champ), avant toute écriture en base. Avec plusieurs [sites],
+/// chaque ligne est rattachée au bon site via ses colonnes Client/Site
+/// (voir [EquipementImportService.calculerDiff]).
 class ImportEquipementsScreen extends StatefulWidget {
-  final ClientModel client;
+  final List<ClientModel> sites;
   final List<TypeEquipementModel> types;
 
   const ImportEquipementsScreen({
     super.key,
-    required this.client,
+    required this.sites,
     required this.types,
   });
 
@@ -49,14 +51,18 @@ class _ImportEquipementsScreenState extends State<ImportEquipementsScreen> {
       return;
     }
 
-    final existants = await _gmaoDb
-        .getEquipementsForClient(widget.client.id)
-        .first;
+    final existantsParSite = <String, List<EquipementModel>>{};
+    for (final site in widget.sites) {
+      existantsParSite[site.id] = await _gmaoDb
+          .getEquipementsForClient(site.id)
+          .first;
+    }
     final typesById = {for (final t in widget.types) t.id: t};
 
     final diff = _importService.calculerDiff(
       lignes: lignes,
-      existants: existants,
+      sites: widget.sites,
+      existantsParSite: existantsParSite,
       typesById: typesById,
     );
 
@@ -82,7 +88,7 @@ class _ImportEquipementsScreenState extends State<ImportEquipementsScreen> {
         await _gmaoDb.addEquipement(
           EquipementModel(
             id: '',
-            clientId: widget.client.id,
+            clientId: diff.ajouts[i].clientId,
             typeEquipementId: ligne.typeEquipementId!,
             nom: ligne.nom,
             numeroEquipement: ligne.numeroEquipement,
@@ -136,7 +142,11 @@ class _ImportEquipementsScreenState extends State<ImportEquipementsScreen> {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('Import équipements'),
+        title: Text(
+          widget.sites.length == 1
+              ? 'Import équipements'
+              : 'Import équipements (${widget.sites.length} sites)',
+        ),
         backgroundColor: Colors.teal[700],
         foregroundColor: Colors.white,
       ),
@@ -266,6 +276,13 @@ class _ImportEquipementsScreenState extends State<ImportEquipementsScreen> {
     );
   }
 
+  String _libelleSite(String clientId) {
+    final site = widget.sites.where((s) => s.id == clientId).firstOrNull;
+    return site == null
+        ? ''
+        : [site.nom, site.site].where((s) => s.isNotEmpty).join(' — ');
+  }
+
   Widget _ligneAjout(int i, DiffAjout ajout) {
     return Card(
       margin: const EdgeInsets.only(bottom: 6),
@@ -283,6 +300,7 @@ class _ImportEquipementsScreenState extends State<ImportEquipementsScreen> {
         title: Text(ajout.ligne.nom),
         subtitle: Text(
           [
+            if (widget.sites.length > 1) _libelleSite(ajout.clientId) else '',
             ajout.ligne.typeDeReleveBrut,
             ajout.ligne.numeroEquipement,
             ajout.ligne.localisation,

@@ -45,12 +45,17 @@ class CsvImportService {
   }
 
   /// Importation massive des Clients depuis le fichier Excel maître
-  /// (.xlsx/.xlsm), feuille "SITES".
-  Future<void> importClients() async {
+  /// (.xlsx/.xlsm), feuille "SITES". Si [filterNom] est fourni, ne
+  /// rafraîchit que les lignes de ce client précis (voir
+  /// [DatabaseService.importClientsFromExcelRows]).
+  Future<void> importClients({String? filterNom}) async {
     final rows = await _pickAndParseExcel(sheetName: 'SITES');
     if (rows != null && rows.isNotEmpty) {
       try {
-        final result = await _db.importClientsFromExcelRows(rows);
+        final result = await _db.importClientsFromExcelRows(
+          rows,
+          filterNom: filterNom,
+        );
         debugPrint(result);
       } catch (e) {
         debugPrint("Erreur importation Batch Clients : $e");

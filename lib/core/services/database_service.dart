@@ -50,11 +50,40 @@ class DatabaseService {
     await _db.collection('clients').doc(clientId).delete();
   }
 
+  /// Supprime plusieurs clients d'un coup (par lots de 500, limite
+  /// Firestore par batch) — pour vider un groupe de sites ou la base
+  /// entière depuis le Répertoire.
+  Future<void> deleteClients(List<String> clientIds) async {
+    await _supprimerParLots('clients', clientIds);
+  }
+
+  Future<void> deleteSuppliers(List<String> supplierIds) async {
+    await _supprimerParLots('suppliers', supplierIds);
+  }
+
+  Future<void> _supprimerParLots(String collection, List<String> ids) async {
+    const tailleLot = 500;
+    for (var i = 0; i < ids.length; i += tailleLot) {
+      final lot = ids.sublist(i, i + tailleLot > ids.length ? ids.length : i + tailleLot);
+      final batch = _db.batch();
+      for (final id in lot) {
+        batch.delete(_db.collection(collection).doc(id));
+      }
+      await batch.commit();
+    }
+  }
+
   /// Importe des clients depuis les lignes de la feuille "SITES" du
   /// fichier Excel maître ("Base clients OGS ....xlsm") : [rows][0] est
   /// l'en-tête, ignoré. Mapping des colonnes selon "Ordre affichage.xlsx"
-  /// (index Chrono = index dans la feuille SITES).
-  Future<String> importClientsFromExcelRows(List<List<String>> rows) async {
+  /// (index Chrono = index dans la feuille SITES). Si [filterNom] est
+  /// fourni, seules les lignes dont le nom client (colonne 1) correspond
+  /// exactement sont prises en compte — pour ne rafraîchir qu'un seul
+  /// client depuis le fichier maître sans toucher aux autres.
+  Future<String> importClientsFromExcelRows(
+    List<List<String>> rows, {
+    String? filterNom,
+  }) async {
     final WriteBatch batch = _db.batch();
     final collection = _db.collection('clients');
     int successCount = 0;
@@ -71,6 +100,7 @@ class DatabaseService {
         errorCount++;
         continue;
       }
+      if (filterNom != null && v(1) != filterNom) continue;
 
       final String customId = _generateIdFromAffaire(nAffaire);
 

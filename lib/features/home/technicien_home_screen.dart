@@ -3,7 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../core/services/database_service.dart';
 import '../../core/services/user_service.dart';
 import '../../core/services/update_service.dart';
-import '../annuaire/clients/client_list_screen.dart';
+import '../annuaire/clients/client_groupes_list_screen.dart';
 import '../annuaire/clients/client_model.dart';
 import '../annuaire/suppliers/supplier_list_screen.dart';
 import '../admin/annuaire_collegues_screen.dart';
@@ -190,7 +190,7 @@ class _TechnicienHomeScreenState extends State<TechnicienHomeScreen> {
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => ClientListScreen(
+          builder: (context) => ClientGroupesListScreen(
             filterHorsContrat: false,
             title: "Clients contrat entretien",
             color: Colors.green[700]!,
@@ -209,7 +209,7 @@ class _TechnicienHomeScreenState extends State<TechnicienHomeScreen> {
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => ClientListScreen(
+          builder: (context) => ClientGroupesListScreen(
             filterHorsContrat: true,
             title: "Clients hors contrat",
             color: Colors.orange[700]!,
