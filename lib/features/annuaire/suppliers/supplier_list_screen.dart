@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/services/database_service.dart';
 import '../../../core/services/user_service.dart';
+import '../../../core/widgets/confirm_delete_dialog.dart';
 import 'supplier_model.dart';
 import 'supplier_detail_screen.dart';
 import 'add_supplier_screen.dart';
@@ -29,6 +30,20 @@ class _SupplierListScreenState extends State<SupplierListScreen> {
     if (mounted) {
       setState(() => _isAdmin = isAdmin);
     }
+  }
+
+  Future<void> _supprimer(SupplierModel supplier) async {
+    final confirme = await confirmerSuppression(
+      context: context,
+      titre: 'Supprimer ce fournisseur',
+      message: 'Supprimer "${supplier.nom}" ? Action irréversible.',
+    );
+    if (!confirme || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    await _db.deleteSupplier(supplier.id);
+    if (!mounted) return;
+    messenger.showSnackBar(const SnackBar(content: Text('Fournisseur supprimé')));
   }
 
   @override
@@ -130,7 +145,21 @@ class _SupplierListScreenState extends State<SupplierListScreen> {
                   subtitle: Text(
                     "${supplier.commune} (${supplier.codePostal})",
                   ),
-                  trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_isAdmin)
+                        IconButton(
+                          icon: const Icon(
+                            Icons.delete_outline,
+                            color: Colors.red,
+                            size: 20,
+                          ),
+                          onPressed: () => _supprimer(supplier),
+                        ),
+                      const Icon(Icons.arrow_forward_ios, size: 14),
+                    ],
+                  ),
                   onTap: () {
                     Navigator.push(
                       context,

@@ -116,6 +116,31 @@ class _GmaoClientsScreenState extends State<GmaoClientsScreen> {
     );
   }
 
+  /// Supprime tous les équipements d'un seul site — depuis le
+  /// sous-menu (liste des sites d'un client à plusieurs sites).
+  Future<void> _supprimerPourSite(
+    BuildContext context,
+    ClientModel site,
+  ) async {
+    final label = [
+      site.nom,
+      site.site,
+    ].where((s) => s.isNotEmpty).join(' — ');
+    final confirme = await confirmerSuppression(
+      context: context,
+      titre: 'Supprimer les équipements de ce site',
+      message:
+          'Supprime tous les équipements de "$label" — action irréversible.',
+    );
+    if (!confirme || !context.mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    final total = await _gmaoDb.supprimerEquipementsPourClients([site.id]);
+    messenger.showSnackBar(
+      SnackBar(content: Text('$total équipement(s) supprimé(s)')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -270,6 +295,8 @@ class _GmaoClientsScreenState extends State<GmaoClientsScreen> {
                                   ClientEquipementsListScreen(client: site),
                             ),
                           ),
+                          onDeleteTap: (site) =>
+                              _supprimerPourSite(context, site),
                         ),
                       ),
                     );

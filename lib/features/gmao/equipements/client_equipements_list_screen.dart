@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../annuaire/clients/client_model.dart';
 import '../../../core/services/user_service.dart';
+import '../../../core/widgets/confirm_delete_dialog.dart';
 import '../gmao_database_service.dart';
 import '../types_equipement/type_equipement_model.dart';
 import '../releve/dynamic_releve_form_screen.dart';
@@ -65,6 +66,43 @@ class _ClientEquipementsListScreenState
     if (mounted) setState(() => _isAdmin = isAdmin);
   }
 
+  Future<void> _supprimerToutLeParc(GmaoDatabaseService gmaoDb) async {
+    final confirme = await confirmerSuppressionMasse(
+      context: context,
+      titre: 'Supprimer tout le parc de ce site',
+      message:
+          'Supprime tous les équipements de ce site — action irréversible.',
+      motConfirmation: widget.client.nom,
+    );
+    if (!confirme || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    final total = await gmaoDb.supprimerEquipementsPourClients([
+      widget.client.id,
+    ]);
+    if (!mounted) return;
+    messenger.showSnackBar(
+      SnackBar(content: Text('$total équipement(s) supprimé(s)')),
+    );
+  }
+
+  Future<void> _supprimerEquipement(
+    GmaoDatabaseService gmaoDb,
+    EquipementModel eq,
+  ) async {
+    final confirme = await confirmerSuppression(
+      context: context,
+      titre: 'Supprimer cet équipement',
+      message: 'Supprimer "${eq.nom}" ? Action irréversible.',
+    );
+    if (!confirme || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    await gmaoDb.deleteEquipement(eq.id);
+    if (!mounted) return;
+    messenger.showSnackBar(const SnackBar(content: Text('Équipement supprimé')));
+  }
+
   @override
   Widget build(BuildContext context) {
     final gmaoDb = GmaoDatabaseService();
@@ -116,6 +154,11 @@ class _ClientEquipementsListScreenState
                       nomFichier: '${client.nom}_${client.site}_equipements.xlsx',
                     );
                   },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline),
+                  tooltip: 'Supprimer tout le parc de ce site',
+                  onPressed: () => _supprimerToutLeParc(gmaoDb),
                 ),
               ],
       ),
@@ -306,6 +349,13 @@ class _ClientEquipementsListScreenState
                 _heuresPrevues(eq),
               ],
             ),
+            trailing: (!readOnly && _isAdmin)
+                ? IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                    onPressed: () =>
+                        _supprimerEquipement(GmaoDatabaseService(), eq),
+                  )
+                : null,
           ),
           if (!readOnly)
             Padding(

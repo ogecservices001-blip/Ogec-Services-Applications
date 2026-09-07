@@ -1,5 +1,33 @@
 import 'package:flutter/material.dart';
 
+/// Boîte de dialogue de confirmation simple (Oui/Non) pour la
+/// suppression d'un seul élément — même style que les écrans de fiche
+/// existants (client, fournisseur).
+Future<bool> confirmerSuppression({
+  required BuildContext context,
+  required String titre,
+  required String message,
+}) async {
+  final result = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text(titre),
+      content: Text(message),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('ANNULER'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, true),
+          child: const Text('SUPPRIMER', style: TextStyle(color: Colors.red)),
+        ),
+      ],
+    ),
+  );
+  return result ?? false;
+}
+
 /// Boîte de dialogue de confirmation pour une suppression en masse et
 /// irréversible : le bouton "SUPPRIMER" ne s'active que si l'utilisateur
 /// a tapé exactement [motConfirmation] — un simple "OK" ne suffit pas

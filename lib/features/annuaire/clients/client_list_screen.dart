@@ -23,6 +23,11 @@ class ClientListScreen extends StatefulWidget {
   /// fiche complète).
   final void Function(ClientModel client)? onClientTap;
 
+  /// Si fourni, affiche une icône de suppression (admin) sur chaque
+  /// ligne — le sens de "supprimer" dépend de l'appelant (ex: vider le
+  /// parc GMAO de ce site, ou supprimer sa fiche Répertoire).
+  final Future<void> Function(ClientModel client)? onDeleteTap;
+
   const ClientListScreen({
     super.key,
     this.filterHorsContrat,
@@ -30,6 +35,7 @@ class ClientListScreen extends StatefulWidget {
     this.title = 'Répertoire Clients',
     this.color = Colors.green,
     this.onClientTap,
+    this.onDeleteTap,
   });
 
   @override
@@ -158,7 +164,21 @@ class _ClientListScreenState extends State<ClientListScreen> {
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                   subtitle: Text("${client.nom} - ${client.commune}"),
-                  trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_isAdmin && widget.onDeleteTap != null)
+                        IconButton(
+                          icon: const Icon(
+                            Icons.delete_outline,
+                            color: Colors.red,
+                            size: 20,
+                          ),
+                          onPressed: () => widget.onDeleteTap!(client),
+                        ),
+                      const Icon(Icons.arrow_forward_ios, size: 14),
+                    ],
+                  ),
                   onTap: () {
                     if (widget.onClientTap != null) {
                       widget.onClientTap!(client);

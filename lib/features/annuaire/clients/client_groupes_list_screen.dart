@@ -99,6 +99,25 @@ class _ClientGroupesListScreenState extends State<ClientGroupesListScreen> {
     messenger.showSnackBar(SnackBar(content: Text('$nom supprimé')));
   }
 
+  /// Supprime la fiche Répertoire d'un seul site — depuis le sous-menu
+  /// (liste des sites d'un client à plusieurs sites).
+  Future<void> _supprimerSite(BuildContext context, ClientModel site) async {
+    final label = [
+      site.nom,
+      site.site,
+    ].where((s) => s.isNotEmpty).join(' — ');
+    final confirme = await confirmerSuppression(
+      context: context,
+      titre: 'Supprimer ce site',
+      message: 'Supprime la fiche Répertoire de "$label" — action irréversible.',
+    );
+    if (!confirme || !context.mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    await _db.deleteClient(site.id);
+    messenger.showSnackBar(SnackBar(content: Text('$label supprimé')));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -255,6 +274,8 @@ class _ClientGroupesListScreenState extends State<ClientGroupesListScreen> {
                           filterHorsContrat: widget.filterHorsContrat,
                           title: nom,
                           color: widget.color,
+                          onDeleteTap: (site) =>
+                              _supprimerSite(context, site),
                         ),
                       ),
                     );
