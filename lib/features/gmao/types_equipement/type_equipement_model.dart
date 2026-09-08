@@ -181,6 +181,12 @@ class TypeEquipementModel {
   final List<ChecklistItem> checklist;
   final List<GroupeMesure> groupesMesures;
 
+  /// Valeur fixe de "Type Equipement 1" (catalogue Heures de référence)
+  /// pour toute cette famille — ex: "Split Autonome" pour MOD SPLIT.
+  /// Vide si la famille n'a pas de classification fixe (pas de champ
+  /// "Type Equipement 1/2/3" du tout).
+  final String typeEquipement1Fixe;
+
   TypeEquipementModel({
     required this.id,
     required this.code,
@@ -188,6 +194,7 @@ class TypeEquipementModel {
     this.champsEnTeteSupplementaires = const [],
     this.checklist = const [],
     this.groupesMesures = const [],
+    this.typeEquipement1Fixe = '',
   });
 
   factory TypeEquipementModel.fromFirestore(DocumentSnapshot doc) {
@@ -206,6 +213,7 @@ class TypeEquipementModel {
       groupesMesures: (data['groupesMesures'] as List<dynamic>? ?? [])
           .map((c) => GroupeMesure.fromMap(Map<String, dynamic>.from(c)))
           .toList(),
+      typeEquipement1Fixe: data['typeEquipement1Fixe'] ?? '',
     );
   }
 
@@ -217,5 +225,6 @@ class TypeEquipementModel {
         .toList(),
     'checklist': checklist.map((c) => c.toMap()).toList(),
     'groupesMesures': groupesMesures.map((g) => g.toMap()).toList(),
+    'typeEquipement1Fixe': typeEquipement1Fixe,
   };
 }

@@ -382,16 +382,6 @@ class GmaoDatabaseService {
         label: 'Type réfrigérant',
         options: ['R32', 'R410', 'R407', 'R22'],
       ),
-      ChampEnTete(
-        cle: 'typeEquipement',
-        label: "Type d'équipement",
-        options: [
-          'Climatiseur type mural',
-          'Climatiseur type cassette',
-          'Climatiseur type plafonnier',
-          'Climatiseur type allège',
-        ],
-      ),
       ChampEnTete(cle: 'marque', label: 'Marque', options: _listeMarques),
       ChampEnTete(
         cle: 'tensionAlim',
@@ -519,6 +509,7 @@ class GmaoDatabaseService {
         ],
       ),
     ],
+    typeEquipement1Fixe: 'Split Autonome',
   );
 
   static final TypeEquipementModel _modBras = TypeEquipementModel(

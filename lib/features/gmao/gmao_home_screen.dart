@@ -8,6 +8,9 @@ import '../../core/services/user_service.dart';
 import '../../core/widgets/confirm_delete_dialog.dart';
 import '../annuaire/clients/client_model.dart';
 import '../home/widgets/dashboard_grid_card.dart';
+import 'equipements/equipement_model.dart';
+import 'references_horaires/references_horaires_service.dart';
+import 'references_horaires/calcul_heures_visite.dart';
 
 /// Point d'entrée GMAO depuis l'accueil : Contrat entretien / Hors
 /// contrat → Client (regroupé par nom) → Site → Parc d'équipements
@@ -23,6 +26,8 @@ class GmaoHomeScreen extends StatefulWidget {
 class _GmaoHomeScreenState extends State<GmaoHomeScreen> {
   final DatabaseService _db = DatabaseService();
   final GmaoDatabaseService _gmaoDb = GmaoDatabaseService();
+  final ReferencesHorairesService _referencesService =
+      ReferencesHorairesService();
   final UserService _userService = UserService();
   bool _isAdmin = false;
   bool _exportEnCours = false;
@@ -98,6 +103,47 @@ class _GmaoHomeScreenState extends State<GmaoHomeScreen> {
     );
   }
 
+  Future<HeuresVisite> _calculerHeuresGlobal() async {
+    final sites = await _db.getClients().first;
+    final references = await _referencesService.getReferences().first;
+    final equipements = <EquipementModel>[];
+    for (final site in sites) {
+      equipements.addAll(await _gmaoDb.getEquipementsForClient(site.id).first);
+    }
+    return sommeHeuresVisite(equipements, references);
+  }
+
+  Widget _compteurHeuresGlobal() {
+    return FutureBuilder<HeuresVisite>(
+      future: _calculerHeuresGlobal(),
+      builder: (context, snapshot) {
+        final total = snapshot.data;
+        if (total == null ||
+            (total.heuresTech == 0 && total.heuresAssistant == 0)) {
+          return const SizedBox.shrink();
+        }
+        return Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Card(
+            color: Colors.teal[50],
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Text(
+                'Heures prévues (tous clients) : ${total.heuresTech}h Tech / '
+                '${total.heuresAssistant}h Assistant',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.teal[800],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final db = DatabaseService();
@@ -156,6 +202,7 @@ class _GmaoHomeScreenState extends State<GmaoHomeScreen> {
                 ),
               ],
             ),
+            _compteurHeuresGlobal(),
             if (_isAdmin) ...[
               const SizedBox(height: 24),
               const Text(

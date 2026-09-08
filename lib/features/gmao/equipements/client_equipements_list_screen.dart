@@ -12,6 +12,7 @@ import 'equipement_export_service.dart';
 import '../references_horaires/references_horaires_service.dart';
 import '../references_horaires/reference_horaire_model.dart';
 import '../references_horaires/calcul_heures_visite.dart';
+import '../references_horaires/suggestion_reference_horaire.dart';
 
 /// Parc d'équipements GMAO d'un client : liste les équipements déjà
 /// enregistrés, permet d'en ajouter et ouvre le relevé pré-rempli pour
@@ -122,7 +123,7 @@ class _ClientEquipementsListScreenState
             ? null
             : [
                 IconButton(
-                  icon: const Icon(Icons.upload_file),
+                  icon: const Icon(Icons.upload_file, color: Colors.white),
                   tooltip: 'Importer un fichier équipements',
                   onPressed: () async {
                     final types = await gmaoDb.getTypesEquipement().first;
@@ -139,7 +140,7 @@ class _ClientEquipementsListScreenState
                   },
                 ),
                 IconButton(
-                  icon: const Icon(Icons.download),
+                  icon: const Icon(Icons.download, color: Colors.white),
                   tooltip: 'Exporter le parc en Excel',
                   onPressed: () async {
                     final types = await gmaoDb.getTypesEquipement().first;
@@ -156,7 +157,7 @@ class _ClientEquipementsListScreenState
                   },
                 ),
                 IconButton(
-                  icon: const Icon(Icons.delete_outline),
+                  icon: const Icon(Icons.delete_outline, color: Colors.white),
                   tooltip: 'Supprimer tout le parc de ce site',
                   onPressed: () => _supprimerToutLeParc(gmaoDb),
                 ),
@@ -171,57 +172,70 @@ class _ClientEquipementsListScreenState
           final types = typesSnapshot.data!;
           final typesById = {for (final t in types) t.id: t};
 
-          return StreamBuilder<List<EquipementModel>>(
-            stream: gmaoDb.getEquipementsForClient(client.id),
-            builder: (context, equipSnapshot) {
-              if (!equipSnapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              final equipements = equipSnapshot.data!;
+          return StreamBuilder<List<ReferenceHoraireModel>>(
+            stream: _referencesService.getReferences(),
+            builder: (context, refSnapshot) {
+              final references = refSnapshot.data ?? const [];
 
-              if (equipements.isEmpty) {
-                return Center(
-                  child: Text(
-                    'Aucun équipement enregistré pour ce client',
-                    style: TextStyle(color: Colors.grey[600]),
-                  ),
-                );
-              }
+              return StreamBuilder<List<EquipementModel>>(
+                stream: gmaoDb.getEquipementsForClient(client.id),
+                builder: (context, equipSnapshot) {
+                  if (!equipSnapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final equipements = equipSnapshot.data!;
 
-              final parGroupe = <String, List<EquipementModel>>{};
-              for (final eq in equipements) {
-                final groupe = eq.groupe.trim().isEmpty
-                    ? 'Sans groupe'
-                    : eq.groupe.trim();
-                parGroupe.putIfAbsent(groupe, () => []).add(eq);
-              }
-              for (final liste in parGroupe.values) {
-                liste.sort((a, b) => a.nom.compareTo(b.nom));
-              }
-              final groupesTries = parGroupe.keys.toList()
-                ..sort((a, b) {
-                  if (a == 'Sans groupe') return 1;
-                  if (b == 'Sans groupe') return -1;
-                  return a.compareTo(b);
-                });
+                  if (equipements.isEmpty) {
+                    return Center(
+                      child: Text(
+                        'Aucun équipement enregistré pour ce client',
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
+                    );
+                  }
 
-              return ListView(
-                padding: const EdgeInsets.all(12),
-                children: [
-                  for (var i = 0; i < groupesTries.length; i++)
-                    _etiquetteGroupe(
-                      context,
-                      groupe: groupesTries[i],
-                      couleur: groupesTries[i] == 'Sans groupe'
-                          ? Colors.blueGrey
-                          : _couleursGroupes[i % _couleursGroupes.length],
-                      ouvertParDefaut: groupesTries.length == 1,
-                      equipements: parGroupe[groupesTries[i]]!,
-                      typesById: typesById,
-                      client: client,
-                      readOnly: readOnly,
-                    ),
-                ],
+                  final parGroupe = <String, List<EquipementModel>>{};
+                  for (final eq in equipements) {
+                    final groupe = eq.groupe.trim().isEmpty
+                        ? 'Sans groupe'
+                        : eq.groupe.trim();
+                    parGroupe.putIfAbsent(groupe, () => []).add(eq);
+                  }
+                  for (final liste in parGroupe.values) {
+                    liste.sort((a, b) => a.nom.compareTo(b.nom));
+                  }
+                  final groupesTries = parGroupe.keys.toList()
+                    ..sort((a, b) {
+                      if (a == 'Sans groupe') return 1;
+                      if (b == 'Sans groupe') return -1;
+                      return a.compareTo(b);
+                    });
+
+                  return ListView(
+                    padding: const EdgeInsets.all(12),
+                    children: [
+                      _compteurHeures(
+                        'Heures prévues (ce site)',
+                        equipements,
+                        references,
+                      ),
+                      for (var i = 0; i < groupesTries.length; i++)
+                        _etiquetteGroupe(
+                          context,
+                          groupe: groupesTries[i],
+                          couleur: groupesTries[i] == 'Sans groupe'
+                              ? Colors.blueGrey
+                              : _couleursGroupes[i % _couleursGroupes.length],
+                          ouvertParDefaut: groupesTries.length == 1,
+                          equipements: parGroupe[groupesTries[i]]!,
+                          typesById: typesById,
+                          references: references,
+                          client: client,
+                          readOnly: readOnly,
+                        ),
+                    ],
+                  );
+                },
               );
             },
           );
@@ -260,6 +274,7 @@ class _ClientEquipementsListScreenState
     required bool ouvertParDefaut,
     required List<EquipementModel> equipements,
     required Map<String, TypeEquipementModel> typesById,
+    required List<ReferenceHoraireModel> references,
     required ClientModel client,
     required bool readOnly,
   }) {
@@ -297,9 +312,15 @@ class _ClientEquipementsListScreenState
               groupe,
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
-            subtitle: Text(
-              '${equipements.length} équipement(s)',
-              style: TextStyle(color: Colors.grey[600], fontSize: 13),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${equipements.length} équipement(s)',
+                  style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                ),
+                _compteurHeures(null, equipements, references, compact: true),
+              ],
             ),
             childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
             children: [
@@ -308,6 +329,7 @@ class _ClientEquipementsListScreenState
                   context,
                   eq,
                   typesById[eq.typeEquipementId],
+                  references,
                   client,
                   readOnly,
                 ),
@@ -322,6 +344,7 @@ class _ClientEquipementsListScreenState
     BuildContext context,
     EquipementModel eq,
     TypeEquipementModel? type,
+    List<ReferenceHoraireModel> references,
     ClientModel client,
     bool readOnly,
   ) {
@@ -346,7 +369,12 @@ class _ClientEquipementsListScreenState
                     eq.localisation,
                   ].where((s) => s.isNotEmpty).join(' — '),
                 ),
-                _heuresPrevues(eq),
+                if (concatTypeEquipement(eq.champsEnTete).isNotEmpty)
+                  Text(
+                    concatTypeEquipement(eq.champsEnTete),
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                _heuresPrevues(eq, references),
               ],
             ),
             trailing: (!readOnly && _isAdmin)
@@ -388,8 +416,56 @@ class _ClientEquipementsListScreenState
     );
   }
 
-  Widget _heuresPrevues(EquipementModel eq) {
-    if (eq.referenceHoraireId.isEmpty) return const SizedBox.shrink();
+  /// Compteur d'heures Tech/Assistant additionnées pour [equipements] —
+  /// réutilisé pour le total du site et pour chaque Groupe. [titre]
+  /// null : version compacte (une ligne, sans carte, pour un sous-titre
+  /// de Groupe) ; sinon carte pleine largeur avec [titre].
+  Widget _compteurHeures(
+    String? titre,
+    List<EquipementModel> equipements,
+    List<ReferenceHoraireModel> references, {
+    bool compact = false,
+  }) {
+    final total = sommeHeuresVisite(equipements, references);
+    if (total.heuresTech == 0 && total.heuresAssistant == 0) {
+      return const SizedBox.shrink();
+    }
+    final texte =
+        '${titre ?? 'Heures prévues'} : ${total.heuresTech}h Tech / '
+        '${total.heuresAssistant}h Assistant';
+    if (compact) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 2),
+        child: Text(
+          texte,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.teal[700],
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      );
+    }
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      color: Colors.teal[50],
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Text(
+          texte,
+          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.teal[800]),
+        ),
+      ),
+    );
+  }
+
+  Widget _heuresPrevues(EquipementModel eq, List<ReferenceHoraireModel> references) {
+    final reference = trouverReferenceExacte(
+      champsEnTete: eq.champsEnTete,
+      references: references,
+    );
+    if (reference == null) return const SizedBox.shrink();
     final freqAnnuelle = int.tryParse(
       eq.champsEnTete['freqEntretienAnnuelle']?.toString() ?? '',
     );
@@ -399,30 +475,22 @@ class _ClientEquipementsListScreenState
     if (freqAnnuelle == null || freqCourante == null) {
       return const SizedBox.shrink();
     }
-
-    return FutureBuilder<ReferenceHoraireModel?>(
-      future: _referencesService.getReferenceById(eq.referenceHoraireId),
-      builder: (context, snapshot) {
-        final reference = snapshot.data;
-        if (reference == null) return const SizedBox.shrink();
-        final heures = calculerHeuresVisite(
-          freqEntretienAnnuelle: freqAnnuelle,
-          freqCourante: freqCourante,
-          reference: reference,
-        );
-        if (heures == null) return const SizedBox.shrink();
-        return Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Text(
-            'Heures prévues : ${heures.heuresTech}h Tech / ${heures.heuresAssistant}h Assistant',
-            style: TextStyle(
-              fontSize: 11,
-              color: Colors.teal[700],
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        );
-      },
+    final heures = calculerHeuresVisite(
+      freqEntretienAnnuelle: freqAnnuelle,
+      freqCourante: freqCourante,
+      reference: reference,
+    );
+    if (heures == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Text(
+        'Heures prévues : ${heures.heuresTech}h Tech / ${heures.heuresAssistant}h Assistant',
+        style: TextStyle(
+          fontSize: 11,
+          color: Colors.teal[700],
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 }

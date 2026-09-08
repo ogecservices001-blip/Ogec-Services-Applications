@@ -64,6 +64,15 @@ class _ReferencesHorairesListScreenState
     final designationController = TextEditingController(
       text: existante?.designation ?? '',
     );
+    final type1Controller = TextEditingController(
+      text: existante?.typeEquipement1 ?? '',
+    );
+    final type2Controller = TextEditingController(
+      text: existante?.typeEquipement2 ?? '',
+    );
+    final type3Controller = TextEditingController(
+      text: existante?.typeEquipement3 ?? '',
+    );
     final controllers = {
       'hrsTechAn': TextEditingController(
         text: existante == null ? '' : existante.hrsTechAn.toString(),
@@ -102,6 +111,21 @@ class _ReferencesHorairesListScreenState
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
+                controller: type1Controller,
+                decoration: const InputDecoration(labelText: 'Type Equipement 1 (famille)'),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: type2Controller,
+                decoration: const InputDecoration(labelText: 'Type Equipement 2 (sous-type)'),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: type3Controller,
+                decoration: const InputDecoration(labelText: 'Type Equipement 3 (puissance)'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
                 controller: designationController,
                 decoration: const InputDecoration(labelText: 'Désignation'),
               ),
@@ -139,6 +163,9 @@ class _ReferencesHorairesListScreenState
                 final reference = ReferenceHoraireModel(
                   id: existante?.id ?? '',
                   designation: designationController.text.trim(),
+                  typeEquipement1: type1Controller.text.trim(),
+                  typeEquipement2: type2Controller.text.trim(),
+                  typeEquipement3: type3Controller.text.trim(),
                   hrsTechAn: n('hrsTechAn'),
                   hrsAssistantAn: n('hrsAssistantAn'),
                   hrsTechSem: n('hrsTechSem'),
@@ -188,12 +215,12 @@ class _ReferencesHorairesListScreenState
                       strokeWidth: 2,
                     ),
                   )
-                : const Icon(Icons.upload_file),
+                : const Icon(Icons.upload_file, color: Colors.white),
             tooltip: 'Importer le classeur "Base horaire équipement"',
             onPressed: _importEnCours ? null : _importer,
           ),
           IconButton(
-            icon: const Icon(Icons.download),
+            icon: const Icon(Icons.download, color: Colors.white),
             tooltip: 'Exporter en Excel',
             onPressed: () => _service.exporterClasseur(),
           ),

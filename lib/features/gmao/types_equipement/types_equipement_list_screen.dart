@@ -23,7 +23,9 @@ class _TypesEquipementListScreenState
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('MOD ROOF et MOD BRAS ajoutés au référentiel'),
+            content: Text(
+              'Référentiel resynchronisé (MOD ROOF, MOD BRAS, MOD SPLIT)',
+            ),
           ),
         );
       }
@@ -46,6 +48,32 @@ class _TypesEquipementListScreenState
         title: const Text('Référentiel équipements (GMAO)'),
         backgroundColor: Colors.teal[700],
         foregroundColor: Colors.white,
+        actions: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Center(
+              child: _semis
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : TextButton(
+                      onPressed: _semer,
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.white,
+                      ),
+                      child: const Text(
+                        'RESYNCHRONISER',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+            ),
+          ),
+        ],
       ),
       body: StreamBuilder<List<TypeEquipementModel>>(
         stream: _db.getTypesEquipement(),

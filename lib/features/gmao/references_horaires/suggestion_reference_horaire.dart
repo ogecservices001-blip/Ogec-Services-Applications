@@ -1,50 +1,28 @@
 import 'reference_horaire_model.dart';
 
-/// Correspondance entre la valeur du champ "Type d'équipement" (MOD
-/// SPLIT) et le sous-type utilisé dans le catalogue "Heures de
-/// référence".
-const Map<String, String> _sousTypeParTypeEquipement = {
-  'climatiseur type mural': 'murale',
-  'climatiseur type cassette': 'cassette',
-  'climatiseur type plafonnier': 'plafonnier',
-  'climatiseur type allège': 'allège',
-};
+String _normaliser(String s) => s.trim().toLowerCase();
 
-double? _extrairePuissance(String texte) {
-  final m = RegExp(r'[\d.,]+').firstMatch(texte);
-  if (m == null) return null;
-  return double.tryParse(m.group(0)!.replaceAll(',', '.'));
-}
-
-/// Suggère une ligne du catalogue à partir du type d'équipement et de
-/// la puissance — hypothèse "Split Autonome" (cas standard), pas
-/// "VRV" (raccordé à un réseau) : à corriger manuellement si ce n'est
-/// pas le bon cas. Puissance arrondie au palier supérieur disponible.
-ReferenceHoraireModel? suggererReferenceHoraire({
-  required String typeEquipement,
-  required String puissanceBrute,
+/// Cherche la ligne du catalogue dont Type Equipement 1/2/3 correspond
+/// exactement à ceux de l'équipement (`champsEnTete['typeEquipement1']`
+/// etc., insensible à la casse/espaces) — remplace l'ancienne
+/// suggestion heuristique ("Split Autonome" par défaut) : plus de
+/// devinette, seulement une correspondance exacte ou rien (le
+/// technicien choisit alors manuellement via le sélecteur).
+ReferenceHoraireModel? trouverReferenceExacte({
+  required Map<String, dynamic> champsEnTete,
   required List<ReferenceHoraireModel> references,
 }) {
-  final sousType = _sousTypeParTypeEquipement[typeEquipement.trim().toLowerCase()];
-  if (sousType == null) return null;
+  final t1 = _normaliser(champsEnTete['typeEquipement1']?.toString() ?? '');
+  if (t1.isEmpty) return null;
+  final t2 = _normaliser(champsEnTete['typeEquipement2']?.toString() ?? '');
+  final t3 = _normaliser(champsEnTete['typeEquipement3']?.toString() ?? '');
 
-  final puissanceEquipement = _extrairePuissance(puissanceBrute);
-  if (puissanceEquipement == null) return null;
-
-  final candidats = references.where((r) {
-    final d = r.designation.toLowerCase();
-    return d.startsWith('split autonome') && d.contains(sousType);
-  }).toList()
-    ..sort((a, b) {
-      final pa = _extrairePuissance(a.puissance) ?? double.infinity;
-      final pb = _extrairePuissance(b.puissance) ?? double.infinity;
-      return pa.compareTo(pb);
-    });
-  if (candidats.isEmpty) return null;
-
-  for (final c in candidats) {
-    final p = _extrairePuissance(c.puissance);
-    if (p != null && p >= puissanceEquipement) return c;
+  for (final r in references) {
+    if (_normaliser(r.typeEquipement1) == t1 &&
+        _normaliser(r.typeEquipement2) == t2 &&
+        _normaliser(r.typeEquipement3) == t3) {
+      return r;
+    }
   }
-  return candidats.last;
+  return null;
 }

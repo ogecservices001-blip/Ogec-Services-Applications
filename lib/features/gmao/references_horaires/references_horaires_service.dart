@@ -4,7 +4,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:excel/excel.dart' as excel_pkg;
 import 'package:file_picker/file_picker.dart';
 import 'reference_horaire_model.dart';
-import 'reference_horaire_tree.dart';
 import '../equipements/download/download.dart';
 
 class ReferencesHorairesService {
@@ -41,10 +40,11 @@ class ReferencesHorairesService {
     return ReferenceHoraireModel.fromFirestore(doc);
   }
 
-  /// Importe le classeur "Base horaire équipement" (colonnes :
-  /// Désignation, Hrs Tech An, Hrs assistant An, Hrs Tech Sem,
-  /// Hrs assistant Sem, Hrs Tech Tri, Hrs assistant Tri) — remplace
-  /// entièrement le référentiel existant par le contenu du fichier.
+  /// Importe le classeur "Base horaire équipement" (colonnes : Type
+  /// Equipement 1/2/3, Désignation, Hrs Tech An, Hrs assistant An,
+  /// Hrs Tech Sem, Hrs assistant Sem, Hrs Tech Tri, Hrs assistant Tri)
+  /// — remplace entièrement le référentiel existant par le contenu du
+  /// fichier.
   Future<int> importerClasseur() async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
@@ -76,6 +76,9 @@ class ReferencesHorairesService {
     }
 
     int? colDesignation = indexParEntete['désignation'];
+    final colType1 = indexParEntete['type equipement 1'];
+    final colType2 = indexParEntete['type equipement 2'];
+    final colType3 = indexParEntete['type equipement 3'];
     const colonnesHeures = {
       'hrsTechAn': 'hrs tech an',
       'hrsAssistantAn': 'hrs assistant an',
@@ -100,6 +103,11 @@ class ReferencesHorairesService {
       return double.tryParse(v.toString().replaceAll(',', '.')) ?? 0;
     }
 
+    String texte(List<excel_pkg.Data?> row, int? index) {
+      if (index == null || index >= row.length) return '';
+      return row[index]?.value?.toString().trim() ?? '';
+    }
+
     final batch = _db.batch();
     var compte = 0;
     for (final row in sheet.rows.skip(1)) {
@@ -112,6 +120,9 @@ class ReferencesHorairesService {
       final ref = ReferenceHoraireModel(
         id: '',
         designation: designation,
+        typeEquipement1: texte(row, colType1),
+        typeEquipement2: texte(row, colType2),
+        typeEquipement3: texte(row, colType3),
         hrsTechAn: valeur(row, indexParEntete[colonnesHeures['hrsTechAn']]),
         hrsAssistantAn: valeur(
           row,
@@ -146,17 +157,15 @@ class ReferencesHorairesService {
         .map((doc) => ReferenceHoraireModel.fromFirestore(doc))
         .toList();
 
-    final arbre = construireArbreReferences(references);
-    final nbNiveaux = arbre.profondeurMax == 0 ? 1 : arbre.profondeurMax;
-
     final excelFile = excel_pkg.Excel.createExcel();
     final nomFeuille = excelFile.getDefaultSheet()!;
-    excelFile.rename(nomFeuille, 'Feuil1');
+    excelFile.rename(nomFeuille, 'Base Horaire');
 
     final colonnes = [
+      'Type Equipement 1',
+      'Type Equipement 2',
+      'Type Equipement 3',
       'Désignation',
-      for (var i = 1; i <= nbNiveaux; i++) 'Niveau $i',
-      'Puissance',
       'Hrs Tech An',
       'Hrs assistant An',
       'Hrs Tech Sem',
@@ -165,17 +174,16 @@ class ReferencesHorairesService {
       'Hrs assistant Tri',
     ];
     excelFile.appendRow(
-      'Feuil1',
+      'Base Horaire',
       colonnes.map((c) => excel_pkg.TextCellValue(c)).toList(),
     );
 
     for (final ref in references) {
-      final chemin = arbre.cheminsParId[ref.id] ?? const [];
-      excelFile.appendRow('Feuil1', [
+      excelFile.appendRow('Base Horaire', [
+        excel_pkg.TextCellValue(ref.typeEquipement1),
+        excel_pkg.TextCellValue(ref.typeEquipement2),
+        excel_pkg.TextCellValue(ref.typeEquipement3),
         excel_pkg.TextCellValue(ref.designation),
-        for (var i = 0; i < nbNiveaux; i++)
-          excel_pkg.TextCellValue(i < chemin.length ? chemin[i] : ''),
-        excel_pkg.TextCellValue(ref.puissance),
         excel_pkg.DoubleCellValue(ref.hrsTechAn),
         excel_pkg.DoubleCellValue(ref.hrsAssistantAn),
         excel_pkg.DoubleCellValue(ref.hrsTechSem),

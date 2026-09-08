@@ -43,6 +43,23 @@ class UserService {
     return role == 'admin';
   }
 
+  /// Nom complet de l'utilisateur connecté (fiche `users`, même format
+  /// que la liste des techniciens) — pour pré-remplir "Nom technicien"
+  /// sans ressaisie manuelle. Vide si non connecté ou fiche introuvable.
+  Future<String> getCurrentUserName() async {
+    final user = _auth.currentUser;
+    if (user == null) return '';
+    try {
+      final doc = await _db.collection('users').doc(user.uid).get();
+      if (doc.exists) {
+        return (doc.data() as Map<String, dynamic>)['name'] ?? '';
+      }
+    } catch (e) {
+      debugPrint("Erreur lors de la récupération du nom utilisateur : $e");
+    }
+    return '';
+  }
+
   // Récupérer tous les utilisateurs
   Stream<QuerySnapshot> getUsers() {
     return _db.collection('users').snapshots();

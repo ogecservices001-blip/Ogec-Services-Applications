@@ -6,8 +6,11 @@ import '../annuaire/clients/client_model.dart';
 import '../annuaire/clients/client_list_screen.dart';
 import 'equipements/client_equipements_list_screen.dart';
 import 'equipements/equipement_export_service.dart';
+import 'equipements/equipement_model.dart';
 import 'equipements/import_equipements_screen.dart';
 import 'gmao_database_service.dart';
+import 'references_horaires/references_horaires_service.dart';
+import 'references_horaires/calcul_heures_visite.dart';
 
 /// Point d'entrée GMAO : regroupe les sites par client (même champ
 /// `nom`, sans nouvelle collection — un client "physique" a souvent
@@ -36,6 +39,8 @@ class _GmaoClientsScreenState extends State<GmaoClientsScreen> {
   final DatabaseService _db = DatabaseService();
   final UserService _userService = UserService();
   final GmaoDatabaseService _gmaoDb = GmaoDatabaseService();
+  final ReferencesHorairesService _referencesService =
+      ReferencesHorairesService();
   String _recherche = '';
   bool _isAdmin = false;
   String? _exportEnCours;
@@ -78,6 +83,41 @@ class _GmaoClientsScreenState extends State<GmaoClientsScreen> {
     } finally {
       if (mounted) setState(() => _exportEnCours = null);
     }
+  }
+
+  Widget _compteurHeuresClient(List<ClientModel> sitesClient) {
+    return FutureBuilder<HeuresVisite>(
+      future: _calculerHeuresClient(sitesClient),
+      builder: (context, snapshot) {
+        final total = snapshot.data;
+        if (total == null ||
+            (total.heuresTech == 0 && total.heuresAssistant == 0)) {
+          return const SizedBox.shrink();
+        }
+        return Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: Text(
+            'Heures prévues : ${total.heuresTech}h Tech / ${total.heuresAssistant}h Assistant',
+            style: TextStyle(
+              fontSize: 12,
+              color: widget.color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<HeuresVisite> _calculerHeuresClient(
+    List<ClientModel> sitesClient,
+  ) async {
+    final references = await _referencesService.getReferences().first;
+    final equipements = <EquipementModel>[];
+    for (final site in sitesClient) {
+      equipements.addAll(await _gmaoDb.getEquipementsForClient(site.id).first);
+    }
+    return sommeHeuresVisite(equipements, references);
   }
 
   Future<void> _importerPourClient(List<ClientModel> sitesClient) async {
@@ -226,9 +266,15 @@ class _GmaoClientsScreenState extends State<GmaoClientsScreen> {
                     nom,
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
-                  subtitle: Text(
-                    '${sitesClient.length} site(s)',
-                    style: TextStyle(color: Colors.grey[600]),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${sitesClient.length} site(s)',
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
+                      _compteurHeuresClient(sitesClient),
+                    ],
                   ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,

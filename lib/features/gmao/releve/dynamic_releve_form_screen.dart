@@ -3,11 +3,12 @@ import '../types_equipement/type_equipement_model.dart';
 import '../equipements/equipement_model.dart';
 import '../gmao_database_service.dart';
 import '../../annuaire/clients/client_model.dart';
+import '../../../core/services/user_service.dart';
 import '../references_horaires/reference_horaire_model.dart';
 import '../references_horaires/references_horaires_service.dart';
-import '../references_horaires/choisir_reference_horaire_screen.dart';
 import '../references_horaires/calcul_heures_visite.dart';
 import '../references_horaires/suggestion_reference_horaire.dart';
+import '../references_horaires/choisir_type_equipement_23.dart';
 
 /// Formulaire de relevé entièrement généré à partir de la config d'une
 /// [TypeEquipementModel] : aucun champ n'est codé en dur pour une
@@ -46,10 +47,10 @@ class _DynamicReleveFormScreenState extends State<DynamicReleveFormScreen> {
   final GmaoDatabaseService _gmaoDb = GmaoDatabaseService();
   final ReferencesHorairesService _referencesService =
       ReferencesHorairesService();
+  final UserService _userService = UserService();
   bool _enregistrementEnCours = false;
-  String _referenceHoraireId = '';
-  ReferenceHoraireModel? _referenceHoraire;
-  bool _referenceSuggereeAuto = false;
+  List<ReferenceHoraireModel> _toutesReferences = [];
+  final Map<String, dynamic> _champsEnTeteOriginaux = {};
   final Map<int, dynamic> _checklistValues = {};
   final Map<String, dynamic> _champsEnTeteValues = {};
   final Map<String, TextEditingController> _champsEnTeteControllers = {};
@@ -63,21 +64,28 @@ class _DynamicReleveFormScreenState extends State<DynamicReleveFormScreen> {
     'Remarque ci dessous',
   ];
   late final List<TextEditingController> _remarques;
+  static const _clesRemarques = [
+    'remarque1',
+    'remarque2',
+    'informationsInternes',
+  ];
 
   @override
   void initState() {
     super.initState();
-    _remarques = List.generate(3, (_) => TextEditingController());
 
     if (widget.equipement != null) {
       _champsEnTeteValues.addAll(widget.equipement!.champsEnTete);
-      _referenceHoraireId = widget.equipement!.referenceHoraireId;
-      if (_referenceHoraireId.isNotEmpty) {
-        _chargerReferenceHoraire();
-      } else {
-        _suggererReferenceHoraire();
-      }
+      _champsEnTeteOriginaux.addAll(widget.equipement!.champsEnTete);
     }
+    _remarques = List.generate(
+      3,
+      (i) => TextEditingController(
+        text: _champsEnTeteValues[_clesRemarques[i]]?.toString() ?? '',
+      ),
+    );
+    _chargerReferences();
+    _preremplirNomTechnicien();
 
     for (final champ in widget.type.champsEnTeteSupplementaires) {
       if (champ.options.isEmpty) {
@@ -114,49 +122,53 @@ class _DynamicReleveFormScreenState extends State<DynamicReleveFormScreen> {
     super.dispose();
   }
 
-  Future<void> _chargerReferenceHoraire() async {
-    final ref = await _referencesService.getReferenceById(_referenceHoraireId);
-    if (mounted) setState(() => _referenceHoraire = ref);
-  }
-
-  /// Pré-remplit la référence horaire à partir du type d'équipement et
-  /// de la puissance (cas standard "Split Autonome") — le technicien
-  /// garde la main via [_choisirReferenceHoraire] si c'est en fait du
-  /// VRV ou un autre cas particulier.
-  Future<void> _suggererReferenceHoraire() async {
+  Future<void> _chargerReferences() async {
     final references = await _referencesService.getReferences().first;
-    final suggestion = suggererReferenceHoraire(
-      typeEquipement: _champsEnTeteValues['typeEquipement']?.toString() ?? '',
-      puissanceBrute: _champsEnTeteValues['puissance']?.toString() ?? '',
-      references: references,
-    );
-    if (suggestion != null && mounted) {
-      setState(() {
-        _referenceHoraireId = suggestion.id;
-        _referenceHoraire = suggestion;
-        _referenceSuggereeAuto = true;
-      });
+    if (mounted) setState(() => _toutesReferences = references);
+  }
+
+  /// Pré-remplit "Nom technicien" avec le compte connecté — évite une
+  /// resaisie manuelle, le technicien peut toujours corriger si besoin
+  /// (ex: il fait la visite pour un collègue).
+  Future<void> _preremplirNomTechnicien() async {
+    final nom = await _userService.getCurrentUserName();
+    if (nom.isNotEmpty && mounted) {
+      setState(() => _champsEnTeteValues['nomTech'] = nom);
     }
   }
 
-  Future<void> _choisirReferenceHoraire() async {
-    final choix = await Navigator.push<ReferenceHoraireModel>(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const ChoisirReferenceHoraireScreen(),
-      ),
+  /// Référence horaire correspondant exactement à Type Equipement 1/2/3
+  /// de l'équipement.
+  ReferenceHoraireModel? get _referenceCorrespondante => trouverReferenceExacte(
+    champsEnTete: _champsEnTeteValues,
+    references: _toutesReferences,
+  );
+
+  /// Ouvre la sélection guidée (Type Equipement 2 puis 3, avec
+  /// confirmation) — si l'admin s'est trompé à l'import, le technicien
+  /// corrige ainsi plutôt qu'en texte libre, pour rester toujours
+  /// cohérent avec le catalogue. La correction est tracée dans
+  /// Remarque 1 au moment de l'enregistrement (voir
+  /// [_tracerCorrectionsTypeEquipement]).
+  Future<void> _changerTypeEquipement23() async {
+    final fixe = widget.type.typeEquipement1Fixe;
+    if (fixe.isEmpty) return;
+    final resultat = await choisirTypeEquipement23(
+      context: context,
+      typeEquipement1Fixe: fixe,
+      references: _toutesReferences,
     );
-    if (choix != null) {
-      setState(() {
-        _referenceHoraireId = choix.id;
-        _referenceHoraire = choix;
-        _referenceSuggereeAuto = false;
-      });
-    }
+    if (resultat == null || !mounted) return;
+    setState(() {
+      _champsEnTeteValues['typeEquipement1'] = fixe;
+      _champsEnTeteValues['typeEquipement2'] = resultat['typeEquipement2'];
+      _champsEnTeteValues['typeEquipement3'] = resultat['typeEquipement3'];
+    });
   }
 
   HeuresVisite? get _heuresVisiteEnCours {
-    if (_referenceHoraire == null) return null;
+    final reference = _referenceCorrespondante;
+    if (reference == null) return null;
     final freqAnnuelle = int.tryParse(
       _champsEnTeteValues['freqEntretienAnnuelle']?.toString() ?? '',
     );
@@ -167,8 +179,40 @@ class _DynamicReleveFormScreenState extends State<DynamicReleveFormScreen> {
     return calculerHeuresVisite(
       freqEntretienAnnuelle: freqAnnuelle,
       freqCourante: freqCourante,
-      reference: _referenceHoraire!,
+      reference: reference,
     );
+  }
+
+  String _deuxChiffres(int n) => n.toString().padLeft(2, '0');
+
+  /// Si le technicien a corrigé Type Equipement 1/2/3 par rapport à ce
+  /// qui était importé, ajoute une ligne de traçabilité dans Remarque 1
+  /// (ancienne valeur → nouvelle, technicien, date) — sans écraser ce
+  /// que le technicien y a déjà écrit.
+  void _tracerCorrectionsTypeEquipement() {
+    const labels = {
+      'typeEquipement1': 'Type Equipement 1',
+      'typeEquipement2': 'Type Equipement 2',
+      'typeEquipement3': 'Type Equipement 3',
+    };
+    final notes = <String>[];
+    for (final entry in labels.entries) {
+      final avant = _champsEnTeteOriginaux[entry.key]?.toString().trim() ?? '';
+      final apres = _champsEnTeteValues[entry.key]?.toString().trim() ?? '';
+      if (avant.isNotEmpty && avant != apres) {
+        notes.add('${entry.value} : "$avant" → "$apres"');
+      }
+    }
+    if (notes.isEmpty) return;
+
+    final nomTech = _champsEnTeteValues['nomTech']?.toString() ?? '';
+    final now = DateTime.now();
+    final date = '${_deuxChiffres(now.day)}/${_deuxChiffres(now.month)}/${now.year}';
+    final ligne =
+        '[Correction $date${nomTech.isNotEmpty ? ' - $nomTech' : ''}] ${notes.join(' ; ')}';
+    _remarques[0].text = _remarques[0].text.isEmpty
+        ? ligne
+        : '${_remarques[0].text}\n$ligne';
   }
 
   Future<void> _enregistrer() async {
@@ -187,11 +231,16 @@ class _DynamicReleveFormScreenState extends State<DynamicReleveFormScreen> {
       return;
     }
 
+    _tracerCorrectionsTypeEquipement();
+    _champsEnTeteValues['remarque1'] = _remarques[0].text;
+    _champsEnTeteValues['remarque2'] = _remarques[1].text;
+    _champsEnTeteValues['informationsInternes'] = _remarques[2].text;
+
     setState(() => _enregistrementEnCours = true);
     try {
       await _gmaoDb.updateEquipement(widget.equipement!.id, {
         'champsEnTete': _champsEnTeteValues,
-        'referenceHoraireId': _referenceHoraireId,
+        'referenceHoraireId': _referenceCorrespondante?.id ?? '',
       });
       messenger.showSnackBar(
         const SnackBar(
@@ -229,67 +278,14 @@ class _DynamicReleveFormScreenState extends State<DynamicReleveFormScreen> {
               children: [
                 _headerCard(type),
 
-                if (type.champsEnTeteSupplementaires.isNotEmpty) ...[
+                if (type.champsEnTeteSupplementaires.isNotEmpty ||
+                    type.typeEquipement1Fixe.isNotEmpty) ...[
                   _sectionTitle('Informations complémentaires'),
-                  _fieldsCard(
-                    type.champsEnTeteSupplementaires
-                        .map(_staticFieldRow)
-                        .toList(),
-                  ),
-                ],
-
-                if (widget.equipement != null) ...[
-                  _sectionTitle('Référence horaire'),
-                  Card(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(
-                      children: [
-                        ListTile(
-                          leading: const Icon(
-                            Icons.schedule_outlined,
-                            color: Colors.teal,
-                          ),
-                          title: Text(
-                            _referenceHoraire?.designation ??
-                                (_referenceHoraireId.isEmpty
-                                    ? 'Aucune — appuyer pour choisir'
-                                    : 'Chargement...'),
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                          subtitle: _referenceSuggereeAuto
-                              ? Text(
-                                  'Suggestion automatique — corriger si besoin (ex: VRV)',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.orange[800],
-                                  ),
-                                )
-                              : null,
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: _choisirReferenceHoraire,
-                        ),
-                        if (_heuresVisiteEnCours != null)
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                            child: Align(
-                              alignment: Alignment.centerLeft,
-                              child: Text(
-                                'Heures prévues pour cette visite : '
-                                '${_heuresVisiteEnCours!.heuresTech}h Tech / '
-                                '${_heuresVisiteEnCours!.heuresAssistant}h Assistant',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.teal[700],
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
+                  _fieldsCard([
+                    if (type.typeEquipement1Fixe.isNotEmpty)
+                      _ligneTypeEquipement(),
+                    ...type.champsEnTeteSupplementaires.map(_staticFieldRow),
+                  ]),
                 ],
 
                 _sectionTitle("Checklist d'entretien"),
@@ -543,6 +539,48 @@ class _DynamicReleveFormScreenState extends State<DynamicReleveFormScreen> {
   }
 
 
+  Widget _ligneTypeEquipement() {
+    final concat = concatTypeEquipement(_champsEnTeteValues);
+    final heures = _heuresVisiteEnCours;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(4),
+            onTap: _changerTypeEquipement23,
+            child: InputDecorator(
+              decoration: const InputDecoration(
+                labelText: 'Type Equipement',
+                isDense: true,
+                border: OutlineInputBorder(),
+                suffixIcon: Icon(Icons.chevron_right),
+              ),
+              child: Text(
+                concat.isEmpty ? 'Appuyer pour choisir' : concat,
+                style: const TextStyle(fontSize: 14),
+              ),
+            ),
+          ),
+          if (heures != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6, left: 4),
+              child: Text(
+                'Heures prévues pour cette visite : '
+                '${heures.heuresTech}h Tech / ${heures.heuresAssistant}h Assistant',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.teal[700],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _staticFieldRow(ChampEnTete champ) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -558,7 +596,8 @@ class _DynamicReleveFormScreenState extends State<DynamicReleveFormScreen> {
                 isDense: true,
                 border: const OutlineInputBorder(),
               ),
-              onChanged: (v) => _champsEnTeteValues[champ.cle] = v,
+              onChanged: (v) =>
+                  setState(() => _champsEnTeteValues[champ.cle] = v),
             )
           : DropdownButtonFormField<String>(
               initialValue: _champsEnTeteValues[champ.cle] as String?,

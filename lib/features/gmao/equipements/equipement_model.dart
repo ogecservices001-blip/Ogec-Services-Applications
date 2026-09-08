@@ -58,3 +58,14 @@ class EquipementModel {
     'champsEnTete': champsEnTete,
   };
 }
+
+/// Concatène "Type Equipement 1-2-3" (ex: "Split Autonome-Murale-3.5 kw")
+/// pour l'affichage — les 3 valeurs restent stockées séparément dans
+/// `champsEnTete`, seule leur affichage est fusionné. Segments vides
+/// ignorés ; chaîne vide si aucun des 3 n'est renseigné.
+String concatTypeEquipement(Map<String, dynamic> champsEnTete) {
+  return ['typeEquipement1', 'typeEquipement2', 'typeEquipement3']
+      .map((cle) => champsEnTete[cle]?.toString().trim() ?? '')
+      .where((s) => s.isNotEmpty)
+      .join('-');
+}

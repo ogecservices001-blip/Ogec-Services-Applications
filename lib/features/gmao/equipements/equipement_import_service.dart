@@ -13,7 +13,8 @@ import 'equipement_model.dart';
 /// famille concernée sont reprises — reste générique pour toute
 /// famille utilisant les mêmes clés que MOD SPLIT.
 const Map<String, String> _colonneVersCle = {
-  'type equipement': 'typeEquipement',
+  'type equipement 2': 'typeEquipement2',
+  'type equipement 3': 'typeEquipement3',
   'marque': 'marque',
   'date m.e.s.': 'dateMES',
   'référence unité intérieure': 'referenceUInt',
@@ -27,7 +28,7 @@ const Map<String, String> _colonneVersCle = {
   'charge réfrigérant kg': 'chargeRefrigerant',
   'tension alim.': 'tensionAlim',
   'puissance': 'puissance',
-  'fréquence entretien annulle': 'freqEntretienAnnuelle',
+  'fréquence entretien annuelle': 'freqEntretienAnnuelle',
   'fréquence courante': 'freqCourante',
 };
 
@@ -314,6 +315,12 @@ class EquipementImportService {
       }
 
       final type = typesById[ligne.typeEquipementId]!;
+      // Type Equipement 1 est fixe par famille (ex: "Split Autonome" pour
+      // MOD SPLIT) — jamais lu depuis le fichier, toujours celui du
+      // référentiel, pour rester garanti cohérent avec le catalogue.
+      if (type.typeEquipement1Fixe.isNotEmpty) {
+        ligne.champsEnTete['typeEquipement1'] = type.typeEquipement1Fixe;
+      }
       final existant = existantsParNumero[numero];
 
       if (existant == null) {

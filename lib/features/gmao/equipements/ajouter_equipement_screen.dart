@@ -3,7 +3,8 @@ import '../types_equipement/type_equipement_model.dart';
 import '../gmao_database_service.dart';
 import '../references_horaires/reference_horaire_model.dart';
 import '../references_horaires/references_horaires_service.dart';
-import '../references_horaires/choisir_reference_horaire_screen.dart';
+import '../references_horaires/suggestion_reference_horaire.dart';
+import '../references_horaires/choisir_type_equipement_23.dart';
 import 'equipement_model.dart';
 
 /// Formulaire d'ajout (ou modification) d'un équipement du parc d'un
@@ -36,10 +37,10 @@ class _AjouterEquipementScreenState extends State<AjouterEquipementScreen> {
   final _localisationController = TextEditingController();
   final _groupeController = TextEditingController();
   final Map<String, dynamic> _champsEnTeteValues = {};
+  final Map<String, TextEditingController> _champsEnTeteControllers = {};
 
   TypeEquipementModel? _typeSelectionne;
-  String _referenceHoraireId = '';
-  ReferenceHoraireModel? _referenceHoraire;
+  List<ReferenceHoraireModel> _toutesReferences = [];
   bool _enCours = false;
 
   @override
@@ -51,34 +52,63 @@ class _AjouterEquipementScreenState extends State<AjouterEquipementScreen> {
       _numeroController.text = existant.numeroEquipement;
       _localisationController.text = existant.localisation;
       _groupeController.text = existant.groupe;
-      _referenceHoraireId = existant.referenceHoraireId;
       _champsEnTeteValues.addAll(existant.champsEnTete);
       _typeSelectionne = widget.typesDisponibles
           .where((t) => t.id == existant.typeEquipementId)
           .firstOrNull;
     }
     _typeSelectionne ??= widget.typesDisponibles.firstOrNull;
-    if (_referenceHoraireId.isNotEmpty) _chargerReferenceHoraire();
+    _reconstruireControleurs();
+    _chargerReferences();
   }
 
-  Future<void> _chargerReferenceHoraire() async {
-    final ref = await _referencesService.getReferenceById(_referenceHoraireId);
-    if (mounted) setState(() => _referenceHoraire = ref);
-  }
-
-  Future<void> _choisirReferenceHoraire() async {
-    final choix = await Navigator.push<ReferenceHoraireModel>(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const ChoisirReferenceHoraireScreen(),
-      ),
-    );
-    if (choix != null) {
-      setState(() {
-        _referenceHoraireId = choix.id;
-        _referenceHoraire = choix;
-      });
+  /// Reconstruit les contrôleurs de texte des champs spécifiques à la
+  /// famille sélectionnée — persistants entre les frappes (pas recréés
+  /// à chaque `setState`, sinon le curseur saute) ; à refaire quand la
+  /// famille change, puisque la liste de champs change avec elle.
+  void _reconstruireControleurs() {
+    for (final c in _champsEnTeteControllers.values) {
+      c.dispose();
     }
+    _champsEnTeteControllers.clear();
+    for (final champ in _typeSelectionne?.champsEnTeteSupplementaires ?? const []) {
+      if (champ.options.isEmpty) {
+        _champsEnTeteControllers[champ.cle] = TextEditingController(
+          text: _champsEnTeteValues[champ.cle]?.toString() ?? '',
+        );
+      }
+    }
+  }
+
+  Future<void> _chargerReferences() async {
+    final references = await _referencesService.getReferences().first;
+    if (mounted) setState(() => _toutesReferences = references);
+  }
+
+  /// Référence horaire correspondant exactement à Type Equipement 1/2/3
+  /// (champs génériques de la famille, ci-dessous) — pas de sélection
+  /// manuelle séparée.
+  ReferenceHoraireModel? get _referenceCorrespondante => trouverReferenceExacte(
+    champsEnTete: _champsEnTeteValues,
+    references: _toutesReferences,
+  );
+
+  /// Ouvre la sélection guidée (Type Equipement 2 puis 3, avec
+  /// confirmation) pour la famille sélectionnée.
+  Future<void> _changerTypeEquipement23() async {
+    final fixe = _typeSelectionne?.typeEquipement1Fixe ?? '';
+    if (fixe.isEmpty) return;
+    final resultat = await choisirTypeEquipement23(
+      context: context,
+      typeEquipement1Fixe: fixe,
+      references: _toutesReferences,
+    );
+    if (resultat == null || !mounted) return;
+    setState(() {
+      _champsEnTeteValues['typeEquipement1'] = fixe;
+      _champsEnTeteValues['typeEquipement2'] = resultat['typeEquipement2'];
+      _champsEnTeteValues['typeEquipement3'] = resultat['typeEquipement3'];
+    });
   }
 
   @override
@@ -87,6 +117,9 @@ class _AjouterEquipementScreenState extends State<AjouterEquipementScreen> {
     _numeroController.dispose();
     _localisationController.dispose();
     _groupeController.dispose();
+    for (final c in _champsEnTeteControllers.values) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -111,7 +144,7 @@ class _AjouterEquipementScreenState extends State<AjouterEquipementScreen> {
         numeroEquipement: _numeroController.text.trim(),
         localisation: _localisationController.text.trim(),
         groupe: _groupeController.text.trim(),
-        referenceHoraireId: _referenceHoraireId,
+        referenceHoraireId: _referenceCorrespondante?.id ?? '',
         champsEnTete: _champsEnTeteValues,
       );
 
@@ -173,7 +206,10 @@ class _AjouterEquipementScreenState extends State<AjouterEquipementScreen> {
                   ),
                 )
                 .toList(),
-            onChanged: (t) => setState(() => _typeSelectionne = t),
+            onChanged: (t) => setState(() {
+              _typeSelectionne = t;
+              _reconstruireControleurs();
+            }),
           ),
           const SizedBox(height: 16),
           TextField(
@@ -207,27 +243,45 @@ class _AjouterEquipementScreenState extends State<AjouterEquipementScreen> {
               border: OutlineInputBorder(),
             ),
           ),
-          const SizedBox(height: 10),
-          Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-              side: BorderSide(color: Colors.grey[300]!),
-            ),
-            elevation: 0,
-            child: ListTile(
-              leading: const Icon(Icons.schedule_outlined, color: Colors.teal),
-              title: const Text('Référence horaire'),
-              subtitle: Text(
-                _referenceHoraire?.designation ??
-                    (_referenceHoraireId.isEmpty
-                        ? 'Aucune — appuyer pour choisir'
-                        : 'Chargement...'),
-                style: const TextStyle(fontSize: 12),
+          if ((_typeSelectionne?.typeEquipement1Fixe ?? '').isNotEmpty) ...[
+            const SizedBox(height: 10),
+            InkWell(
+              borderRadius: BorderRadius.circular(4),
+              onTap: _changerTypeEquipement23,
+              child: InputDecorator(
+                decoration: const InputDecoration(
+                  labelText: 'Type Equipement',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                  suffixIcon: Icon(Icons.chevron_right),
+                ),
+                child: Text(
+                  concatTypeEquipement(_champsEnTeteValues).isEmpty
+                      ? 'Appuyer pour choisir'
+                      : concatTypeEquipement(_champsEnTeteValues),
+                  style: const TextStyle(fontSize: 14),
+                ),
               ),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: _choisirReferenceHoraire,
             ),
-          ),
+          ],
+          if (_referenceCorrespondante != null) ...[
+            const SizedBox(height: 10),
+            Card(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+                side: BorderSide(color: Colors.grey[300]!),
+              ),
+              elevation: 0,
+              child: ListTile(
+                leading: const Icon(Icons.schedule_outlined, color: Colors.teal),
+                title: const Text('Référence horaire'),
+                subtitle: Text(
+                  _referenceCorrespondante!.designation,
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+            ),
+          ],
           if (_typeSelectionne?.champsEnTeteSupplementaires.isNotEmpty ==
               true) ...[
             const SizedBox(height: 20),
@@ -282,10 +336,8 @@ class _AjouterEquipementScreenState extends State<AjouterEquipementScreen> {
           isDense: true,
           border: const OutlineInputBorder(),
         ),
-        controller: TextEditingController(
-          text: _champsEnTeteValues[champ.cle]?.toString() ?? '',
-        ),
-        onChanged: (v) => _champsEnTeteValues[champ.cle] = v,
+        controller: _champsEnTeteControllers[champ.cle],
+        onChanged: (v) => setState(() => _champsEnTeteValues[champ.cle] = v),
       );
     }
     return DropdownButtonFormField<String>(
