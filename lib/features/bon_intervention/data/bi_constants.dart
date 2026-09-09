@@ -21,6 +21,12 @@ class Poles {
   /// exclue : elle raisonne en période, pas en horaire.
   static bool avecHeures(String code) =>
       code == petitsTravaux || code == depannage;
+
+  /// Pôles où l'on propose (en option) de rattacher un équipement du
+  /// parc GMAO du site — Petits travaux ne cible pas forcément un
+  /// équipement enregistré.
+  static bool avecEquipement(String code) =>
+      code == maintenance || code == depannage;
 }
 
 /// Statuts du workflow d'un bon d'intervention.
@@ -44,18 +50,6 @@ class Statuts {
     _ => s,
   };
 }
-
-const natureEntretien = 'entretien';
-const natureTravaux = 'travaux';
-const natureDepannage = 'depannage';
-const natureAutre = 'autre';
-
-const Map<String, String> natures = {
-  natureEntretien: 'Entretien',
-  natureTravaux: 'Travaux',
-  natureDepannage: 'Dépannage',
-  natureAutre: 'Autre',
-};
 
 const Map<String, String> photoTypes = {
   'avant': 'Avant intervention',

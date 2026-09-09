@@ -3,9 +3,8 @@ import 'bi_model.dart';
 import 'bi_format.dart';
 
 /// Dépôt de données des bons d'intervention — collections `bis` (un
-/// document par bon) et `chronos` (compteur par pôle et par année, pour
-/// une numérotation sans doublon). Porté depuis
-/// re.ogec.bi/data/FirebaseRepo.kt.
+/// document par bon) et `chronos` (compteur unique par année, partagé
+/// entre les 3 pôles, pour une numérotation sans doublon).
 class BiService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
@@ -17,18 +16,17 @@ class BiService {
         .map((qs) => qs.docs.map(BonIntervention.fromFirestore).toList());
   }
 
-  /// Réserve le prochain chrono pour (pôle, année) via une transaction
-  /// Firestore : aucun doublon possible en ligne. Chaque année repart à 1.
-  Future<int> allouerChrono(String pole, int annee) async {
+  /// Réserve le prochain chrono pour l'année via une transaction
+  /// Firestore : aucun doublon possible en ligne. Un seul compteur pour
+  /// les 3 pôles (Petits travaux/Maintenance/Dépannage), chaque année
+  /// repart à 1.
+  Future<int> allouerChrono(int annee) async {
     final ref = _db.collection('chronos').doc(annee.toString());
     return _db.runTransaction<int>((tr) async {
       final snap = await tr.get(ref);
-      final bi = Map<String, dynamic>.from(snap.data()?['BI'] ?? {});
-      final current = (bi[pole] as num?)?.toInt() ?? 0;
+      final current = (snap.data()?['BI'] as num?)?.toInt() ?? 0;
       final next = current + 1;
-      tr.set(ref, {
-        'BI': {...bi, pole: next},
-      }, SetOptions(merge: true));
+      tr.set(ref, {'BI': next}, SetOptions(merge: true));
       return next;
     });
   }
@@ -55,7 +53,7 @@ class BiService {
       return bi;
     }
     final annee = BiFormat.currentYear();
-    final chrono = await allouerChrono(bi.pole, annee);
+    final chrono = await allouerChrono(annee);
     bi.chrono = chrono;
     bi.numero = BiFormat.numeroBI(bi.pole, annee, chrono);
     bi.numeroProvisoire = false;

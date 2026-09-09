@@ -49,10 +49,9 @@ class BiPdfGenerator {
           _kv('Adresse', b.adresse.isEmpty ? '—' : b.adresse, styleBold, style),
           if (b.horsContrat) _kv('Statut', 'Client hors contrat', styleBold, style),
           pw.SizedBox(height: 4),
-          pw.Text(_ligneNature(b), style: style),
-          pw.SizedBox(height: 6),
           _section('OGEC', bold),
           _kv('Technicien(s)', b.techniciens.join(', ').isEmpty ? '—' : b.techniciens.join(', '), styleBold, style),
+          if (b.equipementNom.isNotEmpty) _kv('Équipement', b.equipementNom, styleBold, style),
           for (final ligne in _lignesDates(b)) _kv(ligne.key, ligne.value, styleBold, style),
           if (b.numeroDevis.isNotEmpty) _kv('N° devis lié', b.numeroDevis, styleBold, style),
           pw.SizedBox(height: 4),
@@ -212,15 +211,6 @@ class BiPdfGenerator {
       ],
     ),
   );
-
-  static String _ligneNature(BonIntervention b) {
-    return natures.entries.map((e) {
-      final on = b.nature[e.key] == true;
-      final coche = on ? '☑' : '☐';
-      final suffixe = (e.key == natureAutre && on && b.natureAutre.isNotEmpty) ? ' : ${b.natureAutre}' : '';
-      return '$coche ${e.value}$suffixe';
-    }).join('    ');
-  }
 
   static List<MapEntry<String, String>> _lignesDates(BonIntervention b) {
     if (b.pole == Poles.maintenance) {

@@ -2,25 +2,22 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:printing/printing.dart';
 import 'package:signature/signature.dart';
-import '../../../core/data/liste_techniciens.dart';
-import '../../../core/services/database_service.dart';
 import '../../../core/services/user_service.dart';
 import '../../annuaire/clients/client_model.dart';
+import '../../gmao/equipements/equipement_model.dart';
 import '../data/bi_constants.dart';
 import '../data/bi_format.dart';
 import '../data/bi_model.dart';
 import '../data/bi_photo_service.dart';
 import '../data/bi_service.dart';
+import '../pdf/bi_pdf_generator.dart';
+import 'bi_client_picker_screen.dart';
+import 'bi_equipement_picker_screen.dart';
+import 'bi_technicien_picker_screen.dart';
 
 const Color biAccent = Colors.deepPurple;
-
-class _NumeroReserve {
-  final int chrono;
-  final String numero;
-  final bool provisoire;
-  _NumeroReserve(this.chrono, this.numero, this.provisoire);
-}
 
 /// Assistant technicien en 6 étapes pour créer un bon d'intervention —
 /// porté depuis re.ogec.bi (WizardScreens.kt/AppViewModel.kt). Phase 1 :
@@ -35,24 +32,23 @@ class BiWizardScreen extends StatefulWidget {
 
 class _BiWizardScreenState extends State<BiWizardScreen> {
   final BiService _biService = BiService();
-  final DatabaseService _db = DatabaseService();
   final UserService _userService = UserService();
   final BiPhotoService _photoService = BiPhotoService();
 
   int _etape = 0;
   static const _totalEtapes = 6;
   bool _enregistrementEnCours = false;
+  bool _apercuEnCours = false;
 
   // ---------- Étape 0 : Pôle + Client ----------
   String _pole = '';
   int _chrono = 0;
   String _numero = '';
   bool _numeroProvisoire = false;
-  final Map<String, _NumeroReserve> _numerosReserves = {};
   bool _allocationEnCours = false;
 
   ClientModel? _client;
-  final _rechercheClientController = TextEditingController();
+  EquipementModel? _equipement;
   final _emailController = TextEditingController();
 
   // ---------- Étape 1 : Dates / heures ----------
@@ -64,10 +60,8 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   final _tempsPasseController = TextEditingController();
   bool _tempsManuel = false;
 
-  // ---------- Étape 2 : Techniciens + nature ----------
+  // ---------- Étape 2 : Techniciens ----------
   final List<String> _techniciens = [];
-  final Map<String, bool> _nature = {};
-  final _natureAutreController = TextEditingController();
 
   // ---------- Étape 3 : Compte rendu ----------
   final _compteRenduController = TextEditingController();
@@ -82,6 +76,8 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
 
   // ---------- Étape 5 : Signatures ----------
   final _signataireController = TextEditingController();
+  final _signataireTelPortableController = TextEditingController();
+  final _signataireTelFixeController = TextEditingController();
   final SignatureController _sigTechController = SignatureController(
     penStrokeWidth: 3,
     penColor: Colors.black,
@@ -108,14 +104,14 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
 
   @override
   void dispose() {
-    _rechercheClientController.dispose();
     _emailController.dispose();
     _tempsPasseController.dispose();
-    _natureAutreController.dispose();
     _compteRenduController.dispose();
     _obsTechController.dispose();
     _obsClientController.dispose();
     _signataireController.dispose();
+    _signataireTelPortableController.dispose();
+    _signataireTelFixeController.dispose();
     _sigTechController.dispose();
     _sigClientController.dispose();
     super.dispose();
@@ -123,36 +119,42 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
 
   // ==================== Logique métier ====================
 
-  Future<void> _choisirPole(String pole) async {
+  void _choisirPole(String pole) {
     if (_pole == pole) return;
-    setState(() => _pole = pole);
+    setState(() {
+      _pole = pole;
+      if (!Poles.avecEquipement(pole)) _equipement = null;
+      // Pas encore de numéro réservé cette session : seul le segment
+      // pôle du numéro déjà affiché change (voir _assurerNumero — le
+      // vrai chrono n'est tiré qu'au premier enregistrement, pour ne
+      // jamais créer de trou dans la numérotation sur un bon commencé
+      // puis abandonné).
+      if (_chrono != 0) _numero = BiFormat.numeroBI(pole, BiFormat.currentYear(), _chrono);
+    });
     _majTempsStandard();
+  }
 
-    final deja = _numerosReserves[pole];
-    if (deja != null) {
-      setState(() {
-        _chrono = deja.chrono;
-        _numero = deja.numero;
-        _numeroProvisoire = deja.provisoire;
-      });
-      return;
-    }
-
+  /// Réserve le numéro du bon s'il ne l'est pas déjà — appelé juste
+  /// avant le tout premier enregistrement (brouillon ou transmission),
+  /// jamais avant : un bon commencé puis abandonné sans être enregistré
+  /// ne consomme aucun numéro.
+  Future<void> _assurerNumero() async {
+    if (_chrono != 0) return;
     setState(() => _allocationEnCours = true);
     final annee = BiFormat.currentYear();
     try {
-      final n = await _biService.allouerChrono(pole, annee);
+      final n = await _biService.allouerChrono(annee);
       setState(() {
         _chrono = n;
         _numeroProvisoire = false;
-        _numero = BiFormat.numeroBI(pole, annee, n);
+        _numero = BiFormat.numeroBI(_pole, annee, n);
       });
     } catch (_) {
-      final n = DateTime.now().millisecondsSinceEpoch % 900000;
+      final n = DateTime.now().millisecondsSinceEpoch % 10000;
       setState(() {
         _chrono = n;
         _numeroProvisoire = true;
-        _numero = BiFormat.numeroBI(pole, annee, n);
+        _numero = BiFormat.numeroBI(_pole, annee, n);
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -164,8 +166,51 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
         );
       }
     }
-    _numerosReserves[pole] = _NumeroReserve(_chrono, _numero, _numeroProvisoire);
     if (mounted) setState(() => _allocationEnCours = false);
+  }
+
+  Future<void> _choisirClient() async {
+    final site = await Navigator.push<ClientModel>(
+      context,
+      MaterialPageRoute(builder: (context) => const BiClientPickerScreen()),
+    );
+    if (site != null && mounted) {
+      setState(() {
+        _client = site;
+        _equipement = null;
+        // Pré-rempli depuis la fiche Répertoire — reste modifiable, le
+        // technicien corrige si l'interlocuteur présent sur place n'est
+        // pas celui enregistré.
+        _signataireController.text = site.interlocuteurSite;
+        _signataireTelPortableController.text = site.portableInterlocuteurSite;
+        _signataireTelFixeController.text = site.telFixeInterlocuteurSite;
+        _emailController.text = site.courrielInterlocuteurSite;
+      });
+    }
+  }
+
+  Future<void> _choisirEquipement() async {
+    final client = _client;
+    if (client == null) return;
+    final eq = await Navigator.push<EquipementModel>(
+      context,
+      MaterialPageRoute(builder: (context) => BiEquipementPickerScreen(client: client)),
+    );
+    if (eq != null && mounted) setState(() => _equipement = eq);
+  }
+
+  Future<void> _choisirTechniciens() async {
+    final resultat = await Navigator.push<List<String>>(
+      context,
+      MaterialPageRoute(builder: (context) => BiTechnicienPickerScreen(selectionInitiale: _techniciens)),
+    );
+    if (resultat != null && mounted) {
+      setState(() {
+        _techniciens
+          ..clear()
+          ..addAll(resultat);
+      });
+    }
   }
 
   /// Recalcule le temps passé — les horaires priment, sinon la journée
@@ -264,6 +309,8 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       adresse: adresseParts.join(', '),
       email: _emailController.text.trim(),
       horsContrat: c?.horsContrat ?? false,
+      equipementId: _equipement?.id ?? '',
+      equipementNom: _equipement?.nom ?? '',
       dateDebut: _dateDebut,
       dateFin: _dateFin,
       dateIntervention: _dateIntervention,
@@ -271,8 +318,6 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       heureDebut: _heureDebut,
       heureFin: _heureFin,
       techniciens: List.from(_techniciens),
-      nature: Map.from(_nature),
-      natureAutre: _natureAutreController.text.trim(),
       compteRendu: _compteRenduController.text.trim(),
       obsTech: _obsTechController.text.trim(),
       obsClient: _obsClientController.text.trim(),
@@ -285,6 +330,8 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       sigTech: '',
       sigClient: '',
       signataire: _signataireController.text.trim(),
+      signataireTelPortable: _signataireTelPortableController.text.trim(),
+      signataireTelFixe: _signataireTelFixeController.text.trim(),
       dateSignature: BiFormat.now(),
       createdAt: DateTime.now().millisecondsSinceEpoch,
     );
@@ -299,6 +346,7 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
     }
     setState(() => _enregistrementEnCours = true);
     try {
+      await _assurerNumero();
       await _biService.saveBI(_construireBI(Statuts.brouillon));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -326,6 +374,7 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
     }
     setState(() => _enregistrementEnCours = true);
     try {
+      await _assurerNumero();
       final sigTechBytes = await _sigTechController.toPngBytes();
       final sigClientBytes = await _sigClientController.toPngBytes();
       final bi = _construireBI(Statuts.aVerifier);
@@ -353,6 +402,31 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       );
     } finally {
       if (mounted) setState(() => _enregistrementEnCours = false);
+    }
+  }
+
+  /// Aperçu PDF avant transmission — régénéré depuis les données déjà
+  /// saisies, y compris les signatures déjà tracées (vides sinon,
+  /// affichées en blanc dans le PDF, sans bloquer l'aperçu). Rien n'est
+  /// enregistré, ni le bon ni le PDF.
+  Future<void> _apercuPdf() async {
+    setState(() => _apercuEnCours = true);
+    try {
+      final sigTechBytes = await _sigTechController.toPngBytes();
+      final sigClientBytes = await _sigClientController.toPngBytes();
+      final bi = _construireBI(Statuts.brouillon);
+      bi.sigTech = sigTechBytes != null ? base64Encode(sigTechBytes) : '';
+      bi.sigClient = sigClientBytes != null ? base64Encode(sigClientBytes) : '';
+      final bytes = await BiPdfGenerator.generer(bi);
+      if (!mounted) return;
+      await Printing.layoutPdf(onLayout: (format) async => bytes);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Impossible de générer l\'aperçu : $e')));
+    } finally {
+      if (mounted) setState(() => _apercuEnCours = false);
     }
   }
 
@@ -394,7 +468,7 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       case 1:
         return _etapeDatesHeures();
       case 2:
-        return _etapeTechniciensNature();
+        return _etapeTechniciens();
       case 3:
         return _etapeCompteRendu();
       case 4:
@@ -494,27 +568,24 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
           const Padding(
             padding: EdgeInsets.only(top: 8),
             child: Text('Attribution du numéro…', style: TextStyle(fontSize: 12, color: Colors.grey)),
-          ),
-        if (_numero.isNotEmpty)
+          )
+        else if (_numero.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Text(
               'N° $_numero${_numeroProvisoire ? ' (provisoire)' : ''}',
               style: TextStyle(fontWeight: FontWeight.bold, color: biAccent),
             ),
+          )
+        else if (_pole.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              'Le numéro sera attribué à l\'enregistrement',
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            ),
           ),
         _sectionTitle('Client'),
-        TextField(
-          controller: _rechercheClientController,
-          decoration: const InputDecoration(
-            hintText: 'Rechercher un client ou un site...',
-            prefixIcon: Icon(Icons.search),
-            border: OutlineInputBorder(),
-            isDense: true,
-          ),
-          onChanged: (_) => setState(() {}),
-        ),
-        const SizedBox(height: 8),
         if (_client != null)
           Card(
             color: biAccent.withValues(alpha: 0.08),
@@ -523,64 +594,52 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
               leading: const Icon(Icons.check_circle, color: biAccent),
               title: Text('${_client!.nom} — ${_client!.site}'),
               subtitle: Text(_client!.commune),
-              trailing: IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => setState(() => _client = null),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(icon: const Icon(Icons.edit_outlined), onPressed: _choisirClient),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => setState(() {
+                      _client = null;
+                      _equipement = null;
+                    }),
+                  ),
+                ],
               ),
             ),
           )
         else
-          StreamBuilder<List<ClientModel>>(
-            stream: _db.getClients(),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) return const SizedBox.shrink();
-              final q = _rechercheClientController.text.trim().toLowerCase();
-              final resultats = q.isEmpty
-                  ? const <ClientModel>[]
-                  : snapshot.data!
-                        .where(
-                          (c) =>
-                              c.nom.toLowerCase().contains(q) ||
-                              c.site.toLowerCase().contains(q) ||
-                              c.commune.toLowerCase().contains(q),
-                        )
-                        .take(20)
-                        .toList();
-              if (resultats.isEmpty) return const SizedBox.shrink();
-              return ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 260),
-                child: Card(
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: resultats.length,
-                    itemBuilder: (context, i) {
-                      final c = resultats[i];
-                      return ListTile(
-                        dense: true,
-                        title: Text('${c.nom} — ${c.site}'),
-                        subtitle: Text(c.commune),
-                        onTap: () => setState(() {
-                          _client = c;
-                          _rechercheClientController.clear();
-                        }),
-                      );
-                    },
-                  ),
+          OutlinedButton.icon(
+            onPressed: _choisirClient,
+            icon: const Icon(Icons.search),
+            label: const Text('Choisir un client'),
+            style: OutlinedButton.styleFrom(foregroundColor: biAccent, side: BorderSide(color: biAccent)),
+          ),
+        if (_client != null && Poles.avecEquipement(_pole)) ...[
+          _sectionTitle('Équipement (optionnel)'),
+          if (_equipement != null)
+            Card(
+              color: biAccent.withValues(alpha: 0.08),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              child: ListTile(
+                leading: const Icon(Icons.precision_manufacturing_outlined, color: biAccent),
+                title: Text(_equipement!.nom),
+                subtitle: Text(_equipement!.localisation.isEmpty ? '—' : _equipement!.localisation),
+                trailing: IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => setState(() => _equipement = null),
                 ),
-              );
-            },
-          ),
-        const SizedBox(height: 10),
-        TextField(
-          controller: _emailController,
-          keyboardType: TextInputType.emailAddress,
-          decoration: const InputDecoration(
-            labelText: 'Email client (pour envoi du bon)',
-            border: OutlineInputBorder(),
-            isDense: true,
-          ),
-        ),
+              ),
+            )
+          else
+            OutlinedButton.icon(
+              onPressed: _choisirEquipement,
+              icon: const Icon(Icons.precision_manufacturing_outlined),
+              label: const Text('Choisir un équipement du parc GMAO'),
+              style: OutlinedButton.styleFrom(foregroundColor: biAccent, side: BorderSide(color: biAccent)),
+            ),
+        ],
       ],
     );
   }
@@ -690,54 +749,32 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   }
 
   // ---------- Étape 2 ----------
-  Widget _etapeTechniciensNature() {
+  Widget _etapeTechniciens() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _sectionTitle('Techniciens intervenus'),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: listeTechniciens.map((t) {
-            final selectionne = _techniciens.contains(t);
-            return FilterChip(
-              label: Text(t),
-              selected: selectionne,
-              onSelected: (v) => setState(() {
-                if (v) {
-                  _techniciens.add(t);
-                } else {
-                  _techniciens.remove(t);
-                }
-              }),
-              selectedColor: biAccent.withValues(alpha: 0.15),
-            );
-          }).toList(),
-        ),
-        _sectionTitle('Nature de l\'intervention'),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: natures.entries.map((e) {
-            return FilterChip(
-              label: Text(e.value),
-              selected: _nature[e.key] == true,
-              onSelected: (v) => setState(() => _nature[e.key] = v),
-              selectedColor: biAccent.withValues(alpha: 0.15),
-            );
-          }).toList(),
-        ),
-        if (_nature[natureAutre] == true) ...[
-          const SizedBox(height: 10),
-          TextField(
-            controller: _natureAutreController,
-            decoration: const InputDecoration(
-              labelText: 'Préciser',
-              border: OutlineInputBorder(),
-              isDense: true,
-            ),
+        if (_techniciens.isNotEmpty)
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: _techniciens
+                .map(
+                  (t) => Chip(
+                    label: Text(t),
+                    backgroundColor: biAccent.withValues(alpha: 0.12),
+                    onDeleted: () => setState(() => _techniciens.remove(t)),
+                  ),
+                )
+                .toList(),
           ),
-        ],
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: _choisirTechniciens,
+          icon: const Icon(Icons.group_add_outlined),
+          label: const Text('Ajouter un intervenant'),
+          style: OutlinedButton.styleFrom(foregroundColor: biAccent, side: BorderSide(color: biAccent)),
+        ),
       ],
     );
   }
@@ -944,10 +981,57 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
             isDense: true,
           ),
         ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _signataireTelPortableController,
+          keyboardType: TextInputType.phone,
+          decoration: const InputDecoration(
+            labelText: 'Téléphone Portable',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _signataireTelFixeController,
+          keyboardType: TextInputType.phone,
+          decoration: const InputDecoration(
+            labelText: 'Téléphone fixe',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _emailController,
+          keyboardType: TextInputType.emailAddress,
+          decoration: const InputDecoration(
+            labelText: 'Email du signataire',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
         const SizedBox(height: 16),
         _padSignature('Signature technicien', _sigTechController),
         const SizedBox(height: 16),
         _padSignature('Signature client', _sigClientController),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          height: 44,
+          child: OutlinedButton.icon(
+            onPressed: _apercuEnCours ? null : _apercuPdf,
+            icon: _apercuEnCours
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.picture_as_pdf_outlined),
+            label: const Text('Aperçu du PDF'),
+            style: OutlinedButton.styleFrom(foregroundColor: biAccent, side: BorderSide(color: biAccent)),
+          ),
+        ),
       ],
     );
   }

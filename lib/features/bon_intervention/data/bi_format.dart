@@ -19,9 +19,10 @@ class BiFormat {
 
   static int currentYear() => DateTime.now().year;
 
-  /// "BI-`pôle`-`année`-`chrono sur 6 chiffres`".
+  /// "BI-`pôle`-`année`-`chrono sur 4 chiffres`" — 2 à 3 000 bons max par
+  /// an, pas besoin de plus.
   static String numeroBI(String pole, int annee, int chrono) =>
-      'BI-$pole-$annee-${chrono.toString().padLeft(6, '0')}';
+      'BI-$pole-$annee-${chrono.toString().padLeft(4, '0')}';
 
   /// Durée "Xh" ou "XhYY" entre deux horaires "HH:mm" — vide si l'une
   /// des deux heures manque.

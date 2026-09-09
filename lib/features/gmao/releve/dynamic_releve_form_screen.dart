@@ -55,6 +55,11 @@ class _DynamicReleveFormScreenState extends State<DynamicReleveFormScreen> {
   final ReleveService _releveService = ReleveService();
   bool _enregistrementEnCours = false;
   List<ReferenceHoraireModel> _toutesReferences = [];
+  // Le champ "nomTech" du modèle de famille (ChampEnTete) n'a plus
+  // d'options figées — ses choix sont substitués ici, tirés en direct
+  // des comptes utilisateurs (voir UserService.getTechnicienNames),
+  // pour ne jamais dériver d'une liste écrite en dur.
+  List<String> _nomsTechniciens = [];
   int? _freqCouranteCalculee;
   final Map<String, dynamic> _champsEnTeteOriginaux = {};
   final Map<int, dynamic> _checklistValues = {};
@@ -85,6 +90,7 @@ class _DynamicReleveFormScreenState extends State<DynamicReleveFormScreen> {
     // qu'un précédent technicien avait écrit.
     _remarques = List.generate(3, (_) => TextEditingController());
     _chargerReferences();
+    _chargerNomsTechniciens();
     _preremplirNomTechnicien();
 
     if (widget.equipement != null) {
@@ -136,6 +142,11 @@ class _DynamicReleveFormScreenState extends State<DynamicReleveFormScreen> {
   Future<void> _chargerReferences() async {
     final references = await _referencesService.getReferences().first;
     if (mounted) setState(() => _toutesReferences = references);
+  }
+
+  Future<void> _chargerNomsTechniciens() async {
+    final noms = await _userService.getTechnicienNames().first;
+    if (mounted) setState(() => _nomsTechniciens = noms);
   }
 
   /// Pré-remplit "Nom technicien" avec le compte connecté — évite une
@@ -345,7 +356,7 @@ class _DynamicReleveFormScreenState extends State<DynamicReleveFormScreen> {
                   _fieldsCard([
                     if (type.typeEquipement1Fixe.isNotEmpty)
                       _ligneTypeEquipement(),
-                    ...type.champsEnTeteSupplementaires.map(_staticFieldRow),
+                    ...type.champsEnTeteSupplementaires.map(_champAvecOptionsLive).map(_staticFieldRow),
                   ]),
                 ],
 
@@ -652,6 +663,20 @@ class _DynamicReleveFormScreenState extends State<DynamicReleveFormScreen> {
             ),
         ],
       ),
+    );
+  }
+
+  /// Remplace les options figées de "nomTech" par la liste live des
+  /// comptes utilisateurs — les autres champs (marque, tension...)
+  /// ressortent inchangés.
+  ChampEnTete _champAvecOptionsLive(ChampEnTete champ) {
+    if (champ.cle != 'nomTech') return champ;
+    return ChampEnTete(
+      cle: champ.cle,
+      label: champ.label,
+      options: _nomsTechniciens,
+      numerique: champ.numerique,
+      unite: champ.unite,
     );
   }
 

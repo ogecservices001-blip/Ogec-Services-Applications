@@ -90,6 +90,12 @@ class BonIntervention {
   String email;
   bool horsContrat;
 
+  // Équipement du parc GMAO concerné — Maintenance/Dépannage
+  // uniquement, optionnel (le cas où il n'existe pas encore dans le
+  // parc n'est pas géré pour l'instant).
+  String equipementId;
+  String equipementNom;
+
   // Dates — règles par pôle
   String dateDebut; // pôle 20
   String dateFin; // pôle 20
@@ -99,8 +105,6 @@ class BonIntervention {
   String heureFin; // départ — pôles 10/30
 
   List<String> techniciens;
-  Map<String, bool> nature;
-  String natureAutre;
   String compteRendu;
   String obsTech;
   String obsClient;
@@ -110,6 +114,8 @@ class BonIntervention {
   String sigTech; // PNG base64
   String sigClient; // PNG base64
   String signataire;
+  String signataireTelPortable;
+  String signataireTelFixe;
   String dateSignature;
 
   String numeroDevis;
@@ -139,6 +145,8 @@ class BonIntervention {
     this.adresse = '',
     this.email = '',
     this.horsContrat = false,
+    this.equipementId = '',
+    this.equipementNom = '',
     this.dateDebut = '',
     this.dateFin = '',
     this.dateIntervention = '',
@@ -146,8 +154,6 @@ class BonIntervention {
     this.heureDebut = '',
     this.heureFin = '',
     List<String>? techniciens,
-    Map<String, bool>? nature,
-    this.natureAutre = '',
     this.compteRendu = '',
     this.obsTech = '',
     this.obsClient = '',
@@ -156,6 +162,8 @@ class BonIntervention {
     this.sigTech = '',
     this.sigClient = '',
     this.signataire = '',
+    this.signataireTelPortable = '',
+    this.signataireTelFixe = '',
     this.dateSignature = '',
     this.numeroDevis = '',
     this.noteInterne = '',
@@ -167,7 +175,6 @@ class BonIntervention {
     this.createdAt = 0,
     this.updatedAt = 0,
   }) : techniciens = techniciens ?? [],
-       nature = nature ?? {},
        prestas = prestas ?? [Presta()],
        photos = photos ?? [],
        history = history ?? [];
@@ -187,6 +194,8 @@ class BonIntervention {
       adresse: d['adresse'] ?? '',
       email: d['email'] ?? '',
       horsContrat: d['horsContrat'] ?? false,
+      equipementId: d['equipementId'] ?? '',
+      equipementNom: d['equipementNom'] ?? '',
       dateDebut: d['dateDebut'] ?? '',
       dateFin: d['dateFin'] ?? '',
       dateIntervention: d['dateIntervention'] ?? '',
@@ -194,8 +203,6 @@ class BonIntervention {
       heureDebut: d['heureDebut'] ?? '',
       heureFin: d['heureFin'] ?? '',
       techniciens: List<String>.from(d['techniciens'] ?? []),
-      nature: Map<String, bool>.from(d['nature'] ?? {}),
-      natureAutre: d['natureAutre'] ?? '',
       compteRendu: d['compteRendu'] ?? '',
       obsTech: d['obsTech'] ?? '',
       obsClient: d['obsClient'] ?? '',
@@ -208,6 +215,8 @@ class BonIntervention {
       sigTech: d['sigTech'] ?? '',
       sigClient: d['sigClient'] ?? '',
       signataire: d['signataire'] ?? '',
+      signataireTelPortable: d['signataireTelPortable'] ?? '',
+      signataireTelFixe: d['signataireTelFixe'] ?? '',
       dateSignature: d['dateSignature'] ?? '',
       numeroDevis: d['numeroDevis'] ?? '',
       noteInterne: d['noteInterne'] ?? '',
@@ -235,6 +244,8 @@ class BonIntervention {
     'adresse': adresse,
     'email': email,
     'horsContrat': horsContrat,
+    'equipementId': equipementId,
+    'equipementNom': equipementNom,
     'dateDebut': dateDebut,
     'dateFin': dateFin,
     'dateIntervention': dateIntervention,
@@ -242,8 +253,6 @@ class BonIntervention {
     'heureDebut': heureDebut,
     'heureFin': heureFin,
     'techniciens': techniciens,
-    'nature': nature,
-    'natureAutre': natureAutre,
     'compteRendu': compteRendu,
     'obsTech': obsTech,
     'obsClient': obsClient,
@@ -252,6 +261,8 @@ class BonIntervention {
     'sigTech': sigTech,
     'sigClient': sigClient,
     'signataire': signataire,
+    'signataireTelPortable': signataireTelPortable,
+    'signataireTelFixe': signataireTelFixe,
     'dateSignature': dateSignature,
     'numeroDevis': numeroDevis,
     'noteInterne': noteInterne,

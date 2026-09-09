@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/auth/admin_google_session.dart';
-import '../../../core/data/liste_techniciens.dart';
 import '../../../core/services/user_service.dart';
 import '../data/bi_constants.dart';
 import '../data/bi_format.dart';
@@ -173,8 +172,6 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
         heureDebut: _heureDebut,
         heureFin: _heureFin,
         techniciens: _techniciens,
-        nature: original.nature,
-        natureAutre: original.natureAutre,
         compteRendu: _compteRenduController.text.trim(),
         obsTech: _obsTechController.text.trim(),
         obsClient: original.obsClient,
@@ -183,6 +180,8 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
         sigTech: original.sigTech,
         sigClient: original.sigClient,
         signataire: original.signataire,
+        signataireTelPortable: original.signataireTelPortable,
+        signataireTelFixe: original.signataireTelFixe,
         dateSignature: original.dateSignature,
         numeroDevis: _numeroDevisController.text.trim(),
         noteInterne: _noteInterneController.text.trim(),
@@ -326,6 +325,7 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
       _sectionCard('Intervention', [
         _infoLigne('Pôle', '${b.pole} · ${Poles.label(b.pole)}'),
         _infoLigne('Technicien(s)', b.techniciens.join(', ')),
+        if (b.equipementNom.isNotEmpty) _infoLigne('Équipement', b.equipementNom),
         ..._lignesDates(b).map((e) => _infoLigne(e.key, e.value)),
         if (b.numeroDevis.isNotEmpty) _infoLigne('N° devis lié', b.numeroDevis),
       ]),
@@ -532,24 +532,36 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
   }
 
   Widget _champTechniciens() {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: listeTechniciens.map((t) {
-        final selectionne = _techniciens.contains(t);
-        return FilterChip(
-          label: Text(t, style: const TextStyle(fontSize: 12)),
-          selected: selectionne,
-          onSelected: (v) => setState(() {
-            if (v) {
-              _techniciens.add(t);
-            } else {
-              _techniciens.remove(t);
-            }
-          }),
-          selectedColor: biAccent.withValues(alpha: 0.15),
+    return StreamBuilder<List<String>>(
+      stream: _userService.getTechnicienNames(),
+      builder: (context, snapshot) {
+        final noms = snapshot.data ?? const <String>[];
+        if (!snapshot.hasData) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        return Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: noms.map((t) {
+            final selectionne = _techniciens.contains(t);
+            return FilterChip(
+              label: Text(t, style: const TextStyle(fontSize: 12)),
+              selected: selectionne,
+              onSelected: (v) => setState(() {
+                if (v) {
+                  _techniciens.add(t);
+                } else {
+                  _techniciens.remove(t);
+                }
+              }),
+              selectedColor: biAccent.withValues(alpha: 0.15),
+            );
+          }).toList(),
         );
-      }).toList(),
+      },
     );
   }
 

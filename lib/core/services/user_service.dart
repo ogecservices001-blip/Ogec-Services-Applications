@@ -65,6 +65,23 @@ class UserService {
     return _db.collection('users').snapshots();
   }
 
+  /// Noms des techniciens de terrain — comptes `technicien` déjà
+  /// connectés + `en_attente` (fiches pré-créées, personnes réelles pas
+  /// encore connectées à l'appli). Seule source de vérité : plus de
+  /// liste écrite en dur ailleurs dans le code, pour ne jamais dériver
+  /// des vrais comptes (coquille de nom, départ d'un collaborateur...).
+  Stream<List<String>> getTechnicienNames() {
+    return _db.collection('users').snapshots().map((snap) {
+      final noms = snap.docs
+          .where((d) => ['technicien', 'en_attente'].contains(d.data()['role']))
+          .map((d) => (d.data()['name'] ?? '').toString())
+          .where((n) => n.isNotEmpty)
+          .toList();
+      noms.sort();
+      return noms;
+    });
+  }
+
   // Création d'un compte (Auth + Profil Firestore)
   Future<void> addUser({
     required String email,

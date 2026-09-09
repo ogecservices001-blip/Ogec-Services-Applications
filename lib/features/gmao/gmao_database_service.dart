@@ -1,5 +1,4 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../../core/data/liste_techniciens.dart';
 import 'types_equipement/type_equipement_model.dart';
 import 'equipements/equipement_model.dart';
 
@@ -116,8 +115,6 @@ class GmaoDatabaseService {
     'GALAXIE',
     'Mitsubishi Electric',
   ];
-
-  static const _listeTechniciens = listeTechniciens;
 
   static final TypeEquipementModel _modRoof = TypeEquipementModel(
     id: 'mod_roof',
@@ -343,11 +340,10 @@ class GmaoDatabaseService {
     code: 'MOD SPLIT',
     nom: 'Climatiseur individuel Split-Système',
     champsEnTeteSupplementaires: [
-      ChampEnTete(
-        cle: 'nomTech',
-        label: 'Nom technicien',
-        options: _listeTechniciens,
-      ),
+      // Pas d'options ici : le formulaire de relevé les remplace à
+      // l'affichage par la liste live des comptes utilisateurs (voir
+      // DynamicReleveFormScreen._champAvecOptionsLive).
+      ChampEnTete(cle: 'nomTech', label: 'Nom technicien'),
       ChampEnTete(
         cle: 'typeRefrigerant',
         label: 'Type réfrigérant',
