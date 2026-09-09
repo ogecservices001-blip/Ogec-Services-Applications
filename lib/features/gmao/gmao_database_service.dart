@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../core/data/liste_techniciens.dart';
 import 'types_equipement/type_equipement_model.dart';
 import 'equipements/equipement_model.dart';
 
@@ -116,21 +117,7 @@ class GmaoDatabaseService {
     'Mitsubishi Electric',
   ];
 
-  static const _listeTechniciens = [
-    'AMADY Toualali',
-    'CHAMCIRKAN Dimitri',
-    'CORSET Olivier',
-    'GRONDIN Guillaume',
-    'LAMY Fabrice',
-    'LIXIVEL Elino',
-    'MAILLOT Jean Cyrille',
-    'MOUNICHY Julçay',
-    'RAMSAMY Nicolas',
-    'ROBERT Daniel',
-    'ROBERT Ludovic',
-    'ROSSE Bryan',
-    'ROSSE Charly',
-  ];
+  static const _listeTechniciens = listeTechniciens;
 
   static final TypeEquipementModel _modRoof = TypeEquipementModel(
     id: 'mod_roof',

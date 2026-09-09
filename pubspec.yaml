@@ -45,6 +45,9 @@ dependencies:
   permission_handler: ^12.0.1
   web: ^1.1.1
 
+  # Bon d'intervention
+  image_picker: ^1.1.2
+
   # Branding
   flutter_launcher_icons: ^0.14.4
 

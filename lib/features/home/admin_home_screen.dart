@@ -20,6 +20,7 @@ import '../cerfa/consultation/visualiser_bordereau_screen.dart';
 import '../gmao/types_equipement/types_equipement_list_screen.dart';
 import '../gmao/references_horaires/references_horaires_list_screen.dart';
 import '../gmao/gmao_home_screen.dart';
+import '../bon_intervention/wizard/bi_wizard_screen.dart';
 import 'widgets/dashboard_grid_card.dart';
 import 'widgets/dashboard_section_screen.dart';
 import 'widgets/top_menu_card.dart';
@@ -113,6 +114,17 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                     cards: _cerfaCards(context),
                   ),
                 ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TopMenuCard(
+              title: "Bon d'intervention",
+              icon: Icons.assignment_outlined,
+              color: biAccent,
+              subtitle: "Petits travaux, maintenance, dépannage",
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const BiWizardScreen()),
               ),
             ),
             const SizedBox(height: 12),
