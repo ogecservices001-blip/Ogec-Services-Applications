@@ -93,6 +93,17 @@ class _TechnicienHomeScreenState extends State<TechnicienHomeScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             TopMenuCard(
+              title: "Bon d'intervention",
+              icon: Icons.assignment_outlined,
+              color: biAccent,
+              subtitle: "Petits travaux, maintenance, dépannage",
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const BiWizardScreen()),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TopMenuCard(
               title: "GMAO",
               icon: Icons.precision_manufacturing_outlined,
               color: Colors.teal,
@@ -134,17 +145,6 @@ class _TechnicienHomeScreenState extends State<TechnicienHomeScreen> {
                     cards: _cerfaCards(context),
                   ),
                 ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TopMenuCard(
-              title: "Bon d'intervention",
-              icon: Icons.assignment_outlined,
-              color: biAccent,
-              subtitle: "Petits travaux, maintenance, dépannage",
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const BiWizardScreen()),
               ),
             ),
           ],

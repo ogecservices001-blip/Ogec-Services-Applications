@@ -74,6 +74,17 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             const SizedBox(height: 20),
 
             TopMenuCard(
+              title: "Bon d'intervention",
+              icon: Icons.assignment_outlined,
+              color: biAccent,
+              subtitle: "Petits travaux, maintenance, dépannage",
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const BiListScreen()),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TopMenuCard(
               title: "GMAO",
               icon: Icons.precision_manufacturing_outlined,
               color: Colors.teal,
@@ -115,17 +126,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                     cards: _cerfaCards(context),
                   ),
                 ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TopMenuCard(
-              title: "Bon d'intervention",
-              icon: Icons.assignment_outlined,
-              color: biAccent,
-              subtitle: "Petits travaux, maintenance, dépannage",
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const BiListScreen()),
               ),
             ),
             const SizedBox(height: 12),
