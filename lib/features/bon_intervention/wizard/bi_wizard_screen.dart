@@ -10,6 +10,7 @@ import '../../annuaire/clients/client_model.dart';
 import '../data/bi_constants.dart';
 import '../data/bi_format.dart';
 import '../data/bi_model.dart';
+import '../data/bi_photo_service.dart';
 import '../data/bi_service.dart';
 
 const Color biAccent = Colors.deepPurple;
@@ -36,6 +37,7 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   final BiService _biService = BiService();
   final DatabaseService _db = DatabaseService();
   final UserService _userService = UserService();
+  final BiPhotoService _photoService = BiPhotoService();
 
   int _etape = 0;
   static const _totalEtapes = 6;
@@ -76,6 +78,7 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   final List<Presta> _prestas = [Presta()];
   final List<PhotoBI> _photos = [];
   final Map<int, Uint8List> _apercusPhotos = {};
+  final Set<int> _photosEnCours = {};
 
   // ---------- Étape 5 : Signatures ----------
   final _signataireController = TextEditingController();
@@ -204,20 +207,33 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       ),
     );
     if (source == null) return;
-    // maxWidth/imageQuality compressent dès la capture : la seule copie
-    // durable de la photo est le base64 stocké sur le document Firestore
-    // (pas de Storage/Drive avant la Phase 4), il faut rester loin de la
-    // limite de 1 Mo par document avec 4 photos possibles.
     final xfile = await ImagePicker().pickImage(source: source, imageQuality: 70, maxWidth: 1280);
     if (xfile == null) return;
     final bytes = await xfile.readAsBytes();
+    final index = _photos.length;
     setState(() {
-      final index = _photos.length;
-      _photos.add(
-        PhotoBI(localPath: xfile.path, horodatage: BiFormat.now(), data: base64Encode(bytes)),
-      );
+      _photos.add(PhotoBI(localPath: xfile.path, horodatage: BiFormat.now()));
       _apercusPhotos[index] = bytes;
+      _photosEnCours.add(index);
     });
+    try {
+      final url = await _photoService.uploader(bytes);
+      if (!mounted) return;
+      setState(() {
+        if (index < _photos.length) _photos[index].url = url;
+        _photosEnCours.remove(index);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        if (index < _photos.length) _photos.removeAt(index);
+        _apercusPhotos.remove(index);
+        _photosEnCours.remove(index);
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Échec de l\'envoi de la photo : $e')));
+    }
   }
 
   bool get _peutTransmettre =>
@@ -226,7 +242,8 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       _techniciens.isNotEmpty &&
       _sigTechController.isNotEmpty &&
       _sigClientController.isNotEmpty &&
-      _signataireController.text.trim().isNotEmpty;
+      _signataireController.text.trim().isNotEmpty &&
+      _photosEnCours.isEmpty;
 
   BonIntervention _construireBI(String statut) {
     final c = _client;
@@ -274,6 +291,12 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   }
 
   Future<void> _enregistrerBrouillon() async {
+    if (_photosEnCours.isNotEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Envoi des photos en cours, patiente un instant...')));
+      return;
+    }
     setState(() => _enregistrementEnCours = true);
     try {
       await _biService.saveBI(_construireBI(Statuts.brouillon));
@@ -821,6 +844,7 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   Widget _cartePhoto(int i) {
     final photo = _photos[i];
     final bytes = _apercusPhotos[i];
+    final enCours = _photosEnCours.contains(i);
     return SizedBox(
       width: 110,
       child: Column(
@@ -833,15 +857,33 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
                     ? Image.memory(bytes, width: 110, height: 110, fit: BoxFit.cover)
                     : Container(width: 110, height: 110, color: Colors.grey[200]),
               ),
+              if (enCours)
+                Container(
+                  width: 110,
+                  height: 110,
+                  decoration: BoxDecoration(
+                    color: Colors.black45,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Center(
+                    child: SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                    ),
+                  ),
+                ),
               Positioned(
                 top: 0,
                 right: 0,
                 child: IconButton(
                   icon: const Icon(Icons.cancel, color: Colors.red, size: 20),
-                  onPressed: () => setState(() {
-                    _photos.removeAt(i);
-                    _apercusPhotos.remove(i);
-                  }),
+                  onPressed: enCours
+                      ? null
+                      : () => setState(() {
+                          _photos.removeAt(i);
+                          _apercusPhotos.remove(i);
+                        }),
                 ),
               ),
             ],

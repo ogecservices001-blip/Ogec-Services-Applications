@@ -13,6 +13,7 @@ import '../cerfa/consultation/visualiser_bordereau_screen.dart';
 import '../cerfa/services/firestore_service.dart';
 import '../gmao/gmao_home_screen.dart';
 import '../bon_intervention/wizard/bi_wizard_screen.dart';
+import 'widgets/app_version_label.dart';
 import 'widgets/dashboard_grid_card.dart';
 import 'widgets/dashboard_section_screen.dart';
 import 'widgets/top_menu_card.dart';
@@ -92,6 +93,8 @@ class _TechnicienHomeScreenState extends State<TechnicienHomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            const AppVersionLabel(),
+            const SizedBox(height: 12),
             TopMenuCard(
               title: "Bon d'intervention",
               icon: Icons.assignment_outlined,

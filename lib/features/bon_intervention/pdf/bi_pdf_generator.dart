@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:http/http.dart' as http;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -12,9 +13,9 @@ import '../data/bi_model.dart';
 /// Porté depuis re.ogec.bi/pdf/PdfGenerator.kt, avec les mêmes règles :
 /// dates affichées selon le pôle, tableau prestations avec PU/Montant HT
 /// (« — » si non renseigné par le bureau), pages suivantes réservées aux
-/// photos justificatives (4 max). Régénéré à la volée depuis les données
-/// Firestore à chaque consultation — rien n'est stocké (l'archivage
-/// Drive reste la Phase 4).
+/// photos justificatives (4 max, récupérées depuis Firebase Storage).
+/// Régénéré à la volée depuis les données Firestore à chaque
+/// consultation — rien n'est stocké (l'archivage Drive reste la Phase 4).
 class BiPdfGenerator {
   static const _bleu = PdfColor.fromInt(0xFF1375D0);
   static const _encre = PdfColor.fromInt(0xFF14202E);
@@ -87,7 +88,22 @@ class BiPdfGenerator {
       ),
     );
 
-    final photos = b.photos.where((p) => p.data.isNotEmpty).take(4).toList();
+    // pw.Page.build est synchrone : les octets des photos (fichiers
+    // Firebase Storage, plus de base64 dans le document) sont
+    // récupérés à l'avance. Une photo dont le téléchargement échoue
+    // est simplement omise plutôt que de faire échouer tout le PDF.
+    final candidats = b.photos.where((p) => p.url.isNotEmpty).take(4).toList();
+    final octetsParUrl = <String, Uint8List>{};
+    for (final p in candidats) {
+      try {
+        final reponse = await http.get(Uri.parse(p.url));
+        if (reponse.statusCode == 200) octetsParUrl[p.url] = reponse.bodyBytes;
+      } catch (_) {
+        // omise, voir commentaire ci-dessus.
+      }
+    }
+    final photos = candidats.where((p) => octetsParUrl.containsKey(p.url)).toList();
+
     for (var i = 0; i < photos.length; i += 2) {
       final paire = photos.sublist(i, i + 2 > photos.length ? photos.length : i + 2);
       doc.addPage(
@@ -103,7 +119,7 @@ class BiPdfGenerator {
               ),
               pw.SizedBox(height: 12),
               for (final p in paire) ...[
-                pw.Image(pw.MemoryImage(base64Decode(p.data)), fit: pw.BoxFit.contain, height: 320),
+                pw.Image(pw.MemoryImage(octetsParUrl[p.url]!), fit: pw.BoxFit.contain, height: 320),
                 pw.SizedBox(height: 4),
                 pw.Text(
                   '${photoTypes[p.type] ?? p.type}'
