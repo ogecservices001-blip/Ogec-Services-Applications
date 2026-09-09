@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../../core/auth/admin_google_session.dart';
 import '../../../core/data/liste_techniciens.dart';
 import '../../../core/services/user_service.dart';
 import '../data/bi_constants.dart';
 import '../data/bi_format.dart';
 import '../data/bi_model.dart';
 import '../data/bi_service.dart';
+import '../pdf/bi_drive_service.dart';
 import '../pdf/bi_pdf_generator.dart';
 import '../wizard/bi_wizard_screen.dart' show biAccent;
 import '../widgets/statut_badge.dart';
@@ -14,8 +17,8 @@ import '../widgets/statut_badge.dart';
 /// correction des champs autorisés + saisie des prix unitaires HT (jamais
 /// saisis par le technicien). Les données client et la signature restent
 /// verrouillées après signature. Porté depuis
-/// re.ogec.bi/ui/screens/DetailBureauScreen.kt — sans génération PDF ni
-/// archivage Drive (Phases 3/4).
+/// re.ogec.bi/ui/screens/DetailBureauScreen.kt — l'envoi de l'email au
+/// client reste manuel pour l'instant (pas encore construit).
 class BiDetailBureauScreen extends StatefulWidget {
   final String biId;
   const BiDetailBureauScreen({super.key, required this.biId});
@@ -27,6 +30,7 @@ class BiDetailBureauScreen extends StatefulWidget {
 class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
   final BiService _biService = BiService();
   final UserService _userService = UserService();
+  final BiDriveService _driveService = BiDriveService();
   bool _validationEnCours = false;
   bool _pdfEnCours = false;
 
@@ -35,16 +39,36 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
     try {
       final bytes = await BiPdfGenerator.generer(b);
       await Printing.layoutPdf(onLayout: (format) async => bytes);
-      if (b.statut == Statuts.valide) {
+
+      if (b.pdfDriveUrl.isEmpty) {
+        if (!mounted) return;
+        final compte = await AdminGoogleSession.instance.ensureSignedIn(context);
+        final resultat = await _driveService.archiverBI(adminAccount: compte, bi: b, pdfBytes: bytes);
+        await _biService.updateBI(b.id, {
+          'statut': Statuts.pretEnvoi,
+          'driveBiFolderId': resultat.biFolderId,
+          'pdfDriveUrl': resultat.pdfLink,
+          'jsonDriveUrl': resultat.jsonLink,
+        });
+      } else if (b.statut == Statuts.valide) {
         await _biService.updateBI(b.id, {'statut': Statuts.pdfGenere});
       }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Impossible de générer le PDF : $e')),
+        SnackBar(content: Text('PDF affiché, mais l\'archivage Drive a échoué : $e')),
       );
     } finally {
       if (mounted) setState(() => _pdfEnCours = false);
+    }
+  }
+
+  Future<void> _ouvrirSurDrive(String url) async {
+    try {
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Impossible d\'ouvrir Drive : $e')));
     }
   }
 
@@ -288,6 +312,15 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
               label: const Text('Voir le PDF'),
               style: OutlinedButton.styleFrom(foregroundColor: biAccent, side: BorderSide(color: biAccent)),
             ),
+          ),
+        ),
+      if (b.pdfDriveUrl.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: TextButton.icon(
+            onPressed: () => _ouvrirSurDrive(b.pdfDriveUrl),
+            icon: const Icon(Icons.open_in_new, size: 16),
+            label: const Text('Ouvrir sur Drive'),
           ),
         ),
       _sectionCard('Intervention', [

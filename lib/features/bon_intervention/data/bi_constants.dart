@@ -64,3 +64,9 @@ const Map<String, String> photoTypes = {
   'apres': 'Après intervention',
   'autre': 'Autre',
 };
+
+/// Dossier Drive racine de l'archivage des bons d'intervention — donné
+/// par l'utilisateur, appelé à changer plus tard (structure définitive
+/// pas encore figée).
+/// https://drive.google.com/drive/folders/1ghjg8PvSRyaGTm0aq77DQwgO2cy_kzeu
+const String biDriveRootFolderId = '1ghjg8PvSRyaGTm0aq77DQwgO2cy_kzeu';

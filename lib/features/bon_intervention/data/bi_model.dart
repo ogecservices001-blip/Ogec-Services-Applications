@@ -116,6 +116,12 @@ class BonIntervention {
   String numeroDevis;
   String noteInterne;
 
+  // Archivage Drive (Phase 4) — renseignés une fois le PDF généré et
+  // déposé, jamais avant.
+  String driveBiFolderId;
+  String pdfDriveUrl;
+  String jsonDriveUrl;
+
   List<Map<String, dynamic>> history;
   String createdBy;
   int createdAt;
@@ -154,6 +160,9 @@ class BonIntervention {
     this.dateSignature = '',
     this.numeroDevis = '',
     this.noteInterne = '',
+    this.driveBiFolderId = '',
+    this.pdfDriveUrl = '',
+    this.jsonDriveUrl = '',
     List<Map<String, dynamic>>? history,
     this.createdBy = '',
     this.createdAt = 0,
@@ -203,6 +212,9 @@ class BonIntervention {
       dateSignature: d['dateSignature'] ?? '',
       numeroDevis: d['numeroDevis'] ?? '',
       noteInterne: d['noteInterne'] ?? '',
+      driveBiFolderId: d['driveBiFolderId'] ?? '',
+      pdfDriveUrl: d['pdfDriveUrl'] ?? '',
+      jsonDriveUrl: d['jsonDriveUrl'] ?? '',
       history: (d['history'] as List<dynamic>? ?? [])
           .map((e) => Map<String, dynamic>.from(e))
           .toList(),
@@ -244,6 +256,9 @@ class BonIntervention {
     'dateSignature': dateSignature,
     'numeroDevis': numeroDevis,
     'noteInterne': noteInterne,
+    'driveBiFolderId': driveBiFolderId,
+    'pdfDriveUrl': pdfDriveUrl,
+    'jsonDriveUrl': jsonDriveUrl,
     'history': history,
     'createdBy': createdBy,
     'createdAt': createdAt,
