@@ -88,6 +88,24 @@ class BiFormat {
         .map((p) => '${p.designation} ×${p.quantite}')
         .join(', ');
   }
+
+  /// Prix unitaire HT saisi par le bureau — jamais par le technicien.
+  static double? parsePu(String v) => double.tryParse(v.trim().replaceAll(',', '.'));
+
+  static double? montantLigne(Presta p) {
+    final pu = parsePu(p.pu);
+    if (pu == null) return null;
+    final n = double.tryParse(p.quantite.trim().replaceAll(',', '.'));
+    if (n == null) return null;
+    return pu * n;
+  }
+
+  static String eur(double v) => '${v.toStringAsFixed(2)} €';
+
+  static double totalHT(List<Presta> prestas) => prestas.fold(
+    0,
+    (total, p) => total + (montantLigne(p) ?? 0),
+  );
 }
 
 /// Libellé "PP - Libellé" du dossier Drive d'un pôle (ex "20 - Maintenance") —
