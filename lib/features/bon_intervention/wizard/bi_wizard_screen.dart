@@ -204,12 +204,18 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       ),
     );
     if (source == null) return;
-    final xfile = await ImagePicker().pickImage(source: source, imageQuality: 70);
+    // maxWidth/imageQuality compressent dès la capture : la seule copie
+    // durable de la photo est le base64 stocké sur le document Firestore
+    // (pas de Storage/Drive avant la Phase 4), il faut rester loin de la
+    // limite de 1 Mo par document avec 4 photos possibles.
+    final xfile = await ImagePicker().pickImage(source: source, imageQuality: 70, maxWidth: 1280);
     if (xfile == null) return;
     final bytes = await xfile.readAsBytes();
     setState(() {
       final index = _photos.length;
-      _photos.add(PhotoBI(localPath: xfile.path, horodatage: BiFormat.now()));
+      _photos.add(
+        PhotoBI(localPath: xfile.path, horodatage: BiFormat.now(), data: base64Encode(bytes)),
+      );
       _apercusPhotos[index] = bytes;
     });
   }

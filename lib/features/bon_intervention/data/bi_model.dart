@@ -25,12 +25,17 @@ class PhotoBI {
   String legende;
   String localPath;
   String horodatage;
+  // JPEG encodé en base64 — la seule copie durable de la photo (pas de
+  // Firebase Storage/Drive avant la Phase 4), compressée à la capture
+  // pour rester sous la limite Firestore (1 Mo par document, 4 photos max).
+  String data;
 
   PhotoBI({
     this.type = 'autre',
     this.legende = '',
     this.localPath = '',
     this.horodatage = '',
+    this.data = '',
   });
 
   Map<String, dynamic> toMap() => {
@@ -38,6 +43,7 @@ class PhotoBI {
     'legende': legende,
     'localPath': localPath,
     'horodatage': horodatage,
+    'data': data,
   };
 
   factory PhotoBI.from(Map<String, dynamic> m) => PhotoBI(
@@ -45,6 +51,7 @@ class PhotoBI {
     legende: m['legende']?.toString() ?? '',
     localPath: m['localPath']?.toString() ?? '',
     horodatage: m['horodatage']?.toString() ?? '',
+    data: m['data']?.toString() ?? '',
   );
 }
 

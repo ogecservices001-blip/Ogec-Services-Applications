@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:printing/printing.dart';
 import '../../../core/data/liste_techniciens.dart';
 import '../../../core/services/user_service.dart';
 import '../data/bi_constants.dart';
 import '../data/bi_format.dart';
 import '../data/bi_model.dart';
 import '../data/bi_service.dart';
+import '../pdf/bi_pdf_generator.dart';
 import '../wizard/bi_wizard_screen.dart' show biAccent;
 import '../widgets/statut_badge.dart';
 
@@ -26,6 +28,25 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
   final BiService _biService = BiService();
   final UserService _userService = UserService();
   bool _validationEnCours = false;
+  bool _pdfEnCours = false;
+
+  Future<void> _voirPdf(BonIntervention b) async {
+    setState(() => _pdfEnCours = true);
+    try {
+      final bytes = await BiPdfGenerator.generer(b);
+      await Printing.layoutPdf(onLayout: (format) async => bytes);
+      if (b.statut == Statuts.valide) {
+        await _biService.updateBI(b.id, {'statut': Statuts.pdfGenere});
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Impossible de générer le PDF : $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _pdfEnCours = false);
+    }
+  }
 
   // Copie de travail pour la correction bureau — initialisée une fois le
   // bon chargé (voir _initierCorrection).
@@ -238,10 +259,37 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
     );
   }
 
+  static const _statutsAvecPdf = {
+    Statuts.valide,
+    Statuts.pdfGenere,
+    Statuts.pretEnvoi,
+    Statuts.envoye,
+  };
+
   List<Widget> _vueLectureSeule(BonIntervention b) {
     final prestas = b.prestas.where((p) => p.designation.trim().isNotEmpty).toList();
     final total = BiFormat.totalHT(prestas);
     return [
+      if (_statutsAvecPdf.contains(b.statut))
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: OutlinedButton.icon(
+              onPressed: _pdfEnCours ? null : () => _voirPdf(b),
+              icon: _pdfEnCours
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.picture_as_pdf_outlined),
+              label: const Text('Voir le PDF'),
+              style: OutlinedButton.styleFrom(foregroundColor: biAccent, side: BorderSide(color: biAccent)),
+            ),
+          ),
+        ),
       _sectionCard('Intervention', [
         _infoLigne('Pôle', '${b.pole} · ${Poles.label(b.pole)}'),
         _infoLigne('Technicien(s)', b.techniciens.join(', ')),
