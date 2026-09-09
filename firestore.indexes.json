@@ -1,0 +1,21 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "releves",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "equipementId", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "releves",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "equipementId", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

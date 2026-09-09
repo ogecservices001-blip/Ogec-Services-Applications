@@ -75,7 +75,7 @@ class _GmaoClientsScreenState extends State<GmaoClientsScreen> {
         );
       }
 
-      EquipementExportService().exporter(
+      await EquipementExportService().exporter(
         lignes: lignes,
         typesById: typesById,
         nomFichier: '${nomClient}_tous_sites_equipements.xlsx',

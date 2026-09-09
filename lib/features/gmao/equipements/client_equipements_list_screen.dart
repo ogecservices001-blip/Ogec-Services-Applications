@@ -7,12 +7,14 @@ import '../types_equipement/type_equipement_model.dart';
 import '../releve/dynamic_releve_form_screen.dart';
 import 'equipement_model.dart';
 import 'ajouter_equipement_screen.dart';
+import 'visualiser_donnees_screen.dart';
 import 'import_equipements_screen.dart';
 import 'equipement_export_service.dart';
 import '../references_horaires/references_horaires_service.dart';
 import '../references_horaires/reference_horaire_model.dart';
 import '../references_horaires/calcul_heures_visite.dart';
 import '../references_horaires/suggestion_reference_horaire.dart';
+import '../releve/releve_service.dart';
 
 /// Parc d'équipements GMAO d'un client : liste les équipements déjà
 /// enregistrés, permet d'en ajouter et ouvre le relevé pré-rempli pour
@@ -54,6 +56,7 @@ class _ClientEquipementsListScreenState
   final UserService _userService = UserService();
   final ReferencesHorairesService _referencesService =
       ReferencesHorairesService();
+  final ReleveService _releveService = ReleveService();
   bool _isAdmin = false;
 
   @override
@@ -147,7 +150,7 @@ class _ClientEquipementsListScreenState
                     final equipements = await gmaoDb
                         .getEquipementsForClient(client.id)
                         .first;
-                    EquipementExportService().exporter(
+                    await EquipementExportService().exporter(
                       lignes: equipements
                           .map((eq) => EquipementAvecSite(eq, client))
                           .toList(),
@@ -388,27 +391,77 @@ class _ClientEquipementsListScreenState
           if (!readOnly)
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              child: SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: type == null
-                      ? null
-                      : () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => DynamicReleveFormScreen(
-                              type: type,
-                              equipement: eq,
-                              client: client,
-                            ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: type == null
+                              ? null
+                              : () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) =>
+                                        VisualiserDonneesScreen(
+                                      equipement: eq,
+                                      type: type,
+                                      client: client,
+                                    ),
+                                  ),
+                                ),
+                          icon: const Icon(Icons.visibility_outlined, size: 18),
+                          label: const Text('Visualiser Données'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.blueGrey[700],
                           ),
                         ),
-                  icon: const Icon(Icons.play_arrow),
-                  label: const Text('Démarrer Entretien'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.teal[700],
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: type == null
+                              ? null
+                              : () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => DynamicReleveFormScreen(
+                                      type: type,
+                                      equipement: eq,
+                                      client: client,
+                                    ),
+                                  ),
+                                ),
+                          icon: const Icon(Icons.play_arrow, size: 18),
+                          label: const Text('Démarrer Entretien'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.teal[700],
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: null,
+                          icon: const Icon(Icons.build_outlined, size: 18),
+                          label: const Text('Démarrer Dépannage'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: null,
+                          icon: const Icon(Icons.handyman_outlined, size: 18),
+                          label: const Text('Démarrer Réparation'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
         ],
@@ -426,37 +479,42 @@ class _ClientEquipementsListScreenState
     List<ReferenceHoraireModel> references, {
     bool compact = false,
   }) {
-    final total = sommeHeuresVisite(equipements, references);
-    if (total.heuresTech == 0 && total.heuresAssistant == 0) {
-      return const SizedBox.shrink();
-    }
-    final texte =
-        '${titre ?? 'Heures prévues'} : ${total.heuresTech}h Tech / '
-        '${total.heuresAssistant}h Assistant';
-    if (compact) {
-      return Padding(
-        padding: const EdgeInsets.only(top: 2),
-        child: Text(
-          texte,
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.teal[700],
-            fontWeight: FontWeight.w600,
+    return FutureBuilder<HeuresVisite>(
+      future: sommeHeuresVisite(equipements, references),
+      builder: (context, snapshot) {
+        final total = snapshot.data;
+        if (total == null || (total.heuresTech == 0 && total.heuresAssistant == 0)) {
+          return const SizedBox.shrink();
+        }
+        final texte =
+            '${titre ?? 'Heures prévues'} : ${total.heuresTech}h Tech / '
+            '${total.heuresAssistant}h Assistant';
+        if (compact) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              texte,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.teal[700],
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          );
+        }
+        return Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          color: Colors.teal[50],
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Text(
+              texte,
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.teal[800]),
+            ),
           ),
-        ),
-      );
-    }
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      color: Colors.teal[50],
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Text(
-          texte,
-          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.teal[800]),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -469,28 +527,32 @@ class _ClientEquipementsListScreenState
     final freqAnnuelle = int.tryParse(
       eq.champsEnTete['freqEntretienAnnuelle']?.toString() ?? '',
     );
-    final freqCourante = int.tryParse(
-      eq.champsEnTete['freqCourante']?.toString() ?? '',
-    );
-    if (freqAnnuelle == null || freqCourante == null) {
-      return const SizedBox.shrink();
-    }
-    final heures = calculerHeuresVisite(
-      freqEntretienAnnuelle: freqAnnuelle,
-      freqCourante: freqCourante,
-      reference: reference,
-    );
-    if (heures == null) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(top: 4),
-      child: Text(
-        'Heures prévues : ${heures.heuresTech}h Tech / ${heures.heuresAssistant}h Assistant',
-        style: TextStyle(
-          fontSize: 11,
-          color: Colors.teal[700],
-          fontWeight: FontWeight.w600,
-        ),
-      ),
+    if (freqAnnuelle == null) return const SizedBox.shrink();
+
+    return FutureBuilder<int?>(
+      future: _releveService.freqCouranteCalculee(eq.id),
+      builder: (context, snapshot) {
+        final freqCourante = snapshot.data;
+        if (freqCourante == null) return const SizedBox.shrink();
+        final heures = calculerHeuresVisite(
+          freqEntretienAnnuelle: freqAnnuelle,
+          freqCourante: freqCourante,
+          reference: reference,
+        );
+        if (heures == null) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text(
+            'Heures prévues : ${heures.heuresTech}h Tech / ${heures.heuresAssistant}h Assistant '
+            '(visite $freqCourante de $freqAnnuelle ${DateTime.now().year})',
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.teal[700],
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        );
+      },
     );
   }
 }

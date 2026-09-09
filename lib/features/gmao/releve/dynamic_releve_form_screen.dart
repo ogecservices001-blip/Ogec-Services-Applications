@@ -9,6 +9,9 @@ import '../references_horaires/references_horaires_service.dart';
 import '../references_horaires/calcul_heures_visite.dart';
 import '../references_horaires/suggestion_reference_horaire.dart';
 import '../references_horaires/choisir_type_equipement_23.dart';
+import 'releve_model.dart';
+import 'releve_service.dart';
+import 'releve_historique_screen.dart';
 
 /// Formulaire de relevé entièrement généré à partir de la config d'une
 /// [TypeEquipementModel] : aucun champ n'est codé en dur pour une
@@ -22,10 +25,11 @@ import '../references_horaires/choisir_type_equipement_23.dart';
 /// propriétés de l'équipement, pas du relevé lui-même, mais un
 /// technicien doit pouvoir corriger une erreur constatée sur place.
 ///
-/// À ce stade, la partie relevé (checklist/mesures) reste un aperçu :
-/// il n'y a pas encore de collection "releves" à laquelle la rattacher
-/// (prochaine étape du Lot 1). Seules les infos équipement sont
-/// réellement persistées.
+/// L'enregistrement crée deux choses : la mise à jour des champs
+/// équipement (permanents) et un nouveau document dans la collection
+/// `releves` (historique de cette visite précise — checklist, mesures,
+/// remarques), qui sert aussi à calculer automatiquement "Fréquence
+/// courante" (voir `releve_service.dart`).
 class DynamicReleveFormScreen extends StatefulWidget {
   final TypeEquipementModel type;
   final EquipementModel? equipement;
@@ -48,8 +52,10 @@ class _DynamicReleveFormScreenState extends State<DynamicReleveFormScreen> {
   final ReferencesHorairesService _referencesService =
       ReferencesHorairesService();
   final UserService _userService = UserService();
+  final ReleveService _releveService = ReleveService();
   bool _enregistrementEnCours = false;
   List<ReferenceHoraireModel> _toutesReferences = [];
+  int? _freqCouranteCalculee;
   final Map<String, dynamic> _champsEnTeteOriginaux = {};
   final Map<int, dynamic> _checklistValues = {};
   final Map<String, dynamic> _champsEnTeteValues = {};
@@ -64,11 +70,6 @@ class _DynamicReleveFormScreenState extends State<DynamicReleveFormScreen> {
     'Remarque ci dessous',
   ];
   late final List<TextEditingController> _remarques;
-  static const _clesRemarques = [
-    'remarque1',
-    'remarque2',
-    'informationsInternes',
-  ];
 
   @override
   void initState() {
@@ -77,15 +78,25 @@ class _DynamicReleveFormScreenState extends State<DynamicReleveFormScreen> {
     if (widget.equipement != null) {
       _champsEnTeteValues.addAll(widget.equipement!.champsEnTete);
       _champsEnTeteOriginaux.addAll(widget.equipement!.champsEnTete);
+      _chargerFreqCourante();
     }
-    _remarques = List.generate(
-      3,
-      (i) => TextEditingController(
-        text: _champsEnTeteValues[_clesRemarques[i]]?.toString() ?? '',
-      ),
-    );
+    // Chaque visite a ses propres remarques (historisées dans le
+    // relevé, voir `releve_service.dart`) — on ne repart jamais de ce
+    // qu'un précédent technicien avait écrit.
+    _remarques = List.generate(3, (_) => TextEditingController());
     _chargerReferences();
     _preremplirNomTechnicien();
+
+    if (widget.equipement != null) {
+      // "Date interv. prévue" est repartie à la date du jour à chaque
+      // nouvel entretien ouvert — l'ancienne valeur (déjà passée
+      // puisqu'on est en train de faire la visite) n'a plus de sens à
+      // afficher ; reste modifiable si le technicien connaît la vraie
+      // prochaine date.
+      final today = DateTime.now();
+      _champsEnTeteValues['dateIntervPrevue'] =
+          '${_deuxChiffres(today.day)}/${_deuxChiffres(today.month)}/${today.year}';
+    }
 
     for (final champ in widget.type.champsEnTeteSupplementaires) {
       if (champ.options.isEmpty) {
@@ -166,15 +177,22 @@ class _DynamicReleveFormScreenState extends State<DynamicReleveFormScreen> {
     });
   }
 
+  Future<void> _chargerFreqCourante() async {
+    final freq = await _releveService.freqCouranteCalculee(
+      widget.equipement!.id,
+    );
+    if (mounted) setState(() => _freqCouranteCalculee = freq);
+  }
+
+  int? get _freqEntretienAnnuelle => int.tryParse(
+    _champsEnTeteValues['freqEntretienAnnuelle']?.toString() ?? '',
+  );
+
   HeuresVisite? get _heuresVisiteEnCours {
     final reference = _referenceCorrespondante;
     if (reference == null) return null;
-    final freqAnnuelle = int.tryParse(
-      _champsEnTeteValues['freqEntretienAnnuelle']?.toString() ?? '',
-    );
-    final freqCourante = int.tryParse(
-      _champsEnTeteValues['freqCourante']?.toString() ?? '',
-    );
+    final freqAnnuelle = _freqEntretienAnnuelle;
+    final freqCourante = _freqCouranteCalculee;
     if (freqAnnuelle == null || freqCourante == null) return null;
     return calculerHeuresVisite(
       freqEntretienAnnuelle: freqAnnuelle,
@@ -232,9 +250,6 @@ class _DynamicReleveFormScreenState extends State<DynamicReleveFormScreen> {
     }
 
     _tracerCorrectionsTypeEquipement();
-    _champsEnTeteValues['remarque1'] = _remarques[0].text;
-    _champsEnTeteValues['remarque2'] = _remarques[1].text;
-    _champsEnTeteValues['informationsInternes'] = _remarques[2].text;
 
     setState(() => _enregistrementEnCours = true);
     try {
@@ -242,15 +257,43 @@ class _DynamicReleveFormScreenState extends State<DynamicReleveFormScreen> {
         'champsEnTete': _champsEnTeteValues,
         'referenceHoraireId': _referenceCorrespondante?.id ?? '',
       });
+
+      final groupesMesures = <String, List<Map<String, String>>>{};
+      for (final entry in _groupeControllers.entries) {
+        groupesMesures[entry.key] = entry.value
+            .map(
+              (occurrence) => occurrence.map(
+                (cle, controller) => MapEntry(cle, controller.text),
+              ),
+            )
+            .toList();
+      }
+
+      await _releveService.addReleve(
+        ReleveModel(
+          id: '',
+          equipementId: widget.equipement!.id,
+          clientId: widget.equipement!.clientId,
+          date: DateTime.now(),
+          nomTech: _champsEnTeteValues['nomTech']?.toString() ?? '',
+          checklistValues: _checklistValues.map(
+            (rep, valeur) => MapEntry(rep.toString(), valeur),
+          ),
+          groupesMesures: groupesMesures,
+          validationFonctionnement: _validationFonctionnement,
+          remarque1: _remarques[0].text,
+          remarque2: _remarques[1].text,
+          informationsInternes: _remarques[2].text,
+        ),
+      );
+
       messenger.showSnackBar(
         const SnackBar(
-          content: Text(
-            'Informations équipement enregistrées — la checklist et les '
-            'mesures restent en aperçu (collection "releves" à venir)',
-          ),
+          content: Text('Relevé enregistré'),
           duration: Duration(seconds: 3),
         ),
       );
+      if (mounted) Navigator.of(context).pop();
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text('Erreur : $e')));
     } finally {
@@ -268,6 +311,24 @@ class _DynamicReleveFormScreenState extends State<DynamicReleveFormScreen> {
         title: Text(type.nom),
         backgroundColor: Colors.black87,
         foregroundColor: Colors.white,
+        actions: widget.equipement == null
+            ? null
+            : [
+                IconButton(
+                  icon: const Icon(Icons.history, color: Colors.white),
+                  tooltip: 'Historique des visites',
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ReleveHistoriqueScreen(
+                        equipementId: widget.equipement!.id,
+                        nomEquipement: widget.equipement!.nom,
+                        type: widget.type,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
       ),
       body: Stack(
         children: [
@@ -563,9 +624,22 @@ class _DynamicReleveFormScreenState extends State<DynamicReleveFormScreen> {
               ),
             ),
           ),
-          if (heures != null)
+          if (_freqCouranteCalculee != null && _freqEntretienAnnuelle != null)
             Padding(
               padding: const EdgeInsets.only(top: 6, left: 4),
+              child: Text(
+                'Visite en cours : $_freqCouranteCalculee de '
+                '$_freqEntretienAnnuelle ${DateTime.now().year}',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue[800],
+                ),
+              ),
+            ),
+          if (heures != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4, left: 4),
               child: Text(
                 'Heures prévues pour cette visite : '
                 '${heures.heuresTech}h Tech / ${heures.heuresAssistant}h Assistant',

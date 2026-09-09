@@ -58,7 +58,7 @@ class _GmaoHomeScreenState extends State<GmaoHomeScreen> {
         lignes.addAll(equipements.map((eq) => EquipementAvecSite(eq, site)));
       }
 
-      EquipementExportService().exporter(
+      await EquipementExportService().exporter(
         lignes: lignes,
         typesById: typesById,
         nomFichier: 'GMAO_tous_clients_equipements.xlsx',

@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'package:excel/excel.dart' as excel_pkg;
 import '../../annuaire/clients/client_model.dart';
 import '../types_equipement/type_equipement_model.dart';
+import '../releve/releve_service.dart';
 import 'equipement_model.dart';
 import 'download/download.dart';
 
@@ -31,7 +32,6 @@ const List<String> _colonnesSommaire = [
   'Localisation',
   'Date Interv prévue',
   'Nom Tech',
-  'Type Visite',
   'Réfrigérant',
   'Charge Réfrigérant Kg',
   'Tension Alim.',
@@ -48,13 +48,17 @@ class EquipementAvecSite {
 }
 
 class EquipementExportService {
+  final ReleveService _releveService = ReleveService();
+
   /// Génère un classeur "Sommaire" à partir d'une liste d'équipements
   /// (chacun avec son site d'origine) et déclenche son téléchargement.
-  void exporter({
+  /// "Fréquence courante" est recalculée pour chaque ligne (voir
+  /// [ReleveService.freqCouranteCalculee]) — informative, pas réimportée.
+  Future<void> exporter({
     required List<EquipementAvecSite> lignes,
     required Map<String, TypeEquipementModel> typesById,
     required String nomFichier,
-  }) {
+  }) async {
     final excel = excel_pkg.Excel.createExcel();
     final nomFeuille = excel.getDefaultSheet()!;
     excel.rename(nomFeuille, 'Sommaire');
@@ -69,10 +73,13 @@ class EquipementExportService {
       final site = ligne.site;
       final type = typesById[eq.typeEquipementId];
       final c = eq.champsEnTete;
+      final freqCourante = await _releveService.freqCouranteCalculee(eq.id);
       final row = <excel_pkg.CellValue>[
         excel_pkg.TextCellValue(eq.nom),
         _cellNumerique(c['freqEntretienAnnuelle']),
-        _cellNumerique(c['freqCourante']),
+        freqCourante == null
+            ? excel_pkg.TextCellValue('')
+            : excel_pkg.IntCellValue(freqCourante),
         excel_pkg.TextCellValue(type?.code ?? eq.typeEquipementId),
         excel_pkg.TextCellValue(eq.groupe),
         excel_pkg.TextCellValue(site.nom),
@@ -92,7 +99,6 @@ class EquipementExportService {
         excel_pkg.TextCellValue(eq.localisation),
         excel_pkg.TextCellValue(c['dateIntervPrevue']?.toString() ?? ''),
         excel_pkg.TextCellValue(c['nomTech']?.toString() ?? ''),
-        excel_pkg.TextCellValue(c['typeVisite']?.toString() ?? ''),
         excel_pkg.TextCellValue(c['typeRefrigerant']?.toString() ?? ''),
         _cellNumerique(c['chargeRefrigerant']),
         excel_pkg.TextCellValue(c['tensionAlim']?.toString() ?? ''),

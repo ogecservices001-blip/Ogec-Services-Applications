@@ -132,17 +132,6 @@ class GmaoDatabaseService {
     'ROSSE Charly',
   ];
 
-  static const _listeTypeVisite = [
-    'Annuelle',
-    '1/2 Semestriel',
-    '2/2 Semestriel',
-    '1/4 Trimestriel',
-    '2/4 Trimestriel',
-    '3/4 Trimestriel',
-    '4/4 Trimestriel',
-    'Mensuel',
-  ];
-
   static final TypeEquipementModel _modRoof = TypeEquipementModel(
     id: 'mod_roof',
     code: 'MOD ROOF',
@@ -368,11 +357,6 @@ class GmaoDatabaseService {
     nom: 'Climatiseur individuel Split-Système',
     champsEnTeteSupplementaires: [
       ChampEnTete(
-        cle: 'typeVisite',
-        label: 'Type de visite',
-        options: _listeTypeVisite,
-      ),
-      ChampEnTete(
         cle: 'nomTech',
         label: 'Nom technicien',
         options: _listeTechniciens,
@@ -409,12 +393,6 @@ class GmaoDatabaseService {
         cle: 'freqEntretienAnnuelle',
         label: "Fréquence entretien annuelle",
         numerique: true,
-      ),
-      ChampEnTete(
-        cle: 'freqCourante',
-        label: 'Fréquence courante',
-        numerique: true,
-        unite: '°',
       ),
       ChampEnTete(cle: 'dateIntervPrevue', label: 'Date interv. prévue'),
     ],

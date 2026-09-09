@@ -1,6 +1,7 @@
 import '../equipements/equipement_model.dart';
 import 'reference_horaire_model.dart';
 import 'suggestion_reference_horaire.dart';
+import '../releve/releve_service.dart';
 
 class HeuresVisite {
   final double heuresTech;
@@ -17,11 +18,15 @@ class HeuresVisite {
 /// recalculée en direct depuis Type Equipement 1/2/3 (pas depuis le
 /// champ `referenceHoraireId` stocké, qui n'est rempli qu'au moment où
 /// un relevé est enregistré — un équipement juste importé n'aurait
-/// sinon jamais d'heures comptées).
-HeuresVisite sommeHeuresVisite(
+/// sinon jamais d'heures comptées). "Fréquence courante" est elle aussi
+/// calculée en direct depuis l'historique des relevés (voir
+/// [ReleveService.freqCouranteCalculee]), plus depuis une valeur
+/// stockée.
+Future<HeuresVisite> sommeHeuresVisite(
   List<EquipementModel> equipements,
   List<ReferenceHoraireModel> references,
-) {
+) async {
+  final releveService = ReleveService();
   var total = const HeuresVisite(0, 0);
   for (final eq in equipements) {
     final reference = trouverReferenceExacte(
@@ -32,10 +37,9 @@ HeuresVisite sommeHeuresVisite(
     final freqAnnuelle = int.tryParse(
       eq.champsEnTete['freqEntretienAnnuelle']?.toString() ?? '',
     );
-    final freqCourante = int.tryParse(
-      eq.champsEnTete['freqCourante']?.toString() ?? '',
-    );
-    if (freqAnnuelle == null || freqCourante == null) continue;
+    if (freqAnnuelle == null) continue;
+    final freqCourante = await releveService.freqCouranteCalculee(eq.id);
+    if (freqCourante == null) continue;
     final heures = calculerHeuresVisite(
       freqEntretienAnnuelle: freqAnnuelle,
       freqCourante: freqCourante,
@@ -59,12 +63,21 @@ HeuresVisite? calculerHeuresVisite({
   required int freqCourante,
   required ReferenceHoraireModel reference,
 }) {
+  // "Fréquence courante" est désormais calculée en comptant les relevés
+  // réels de l'année, sans plafond — au-delà du nombre de visites
+  // prévues (ex: 3ème visite alors que 2 sont prévues), on reboucle sur
+  // la séquence (3ème = comme la 1ère, etc.) plutôt que de ne plus rien
+  // afficher.
+  final courante = freqEntretienAnnuelle > 0
+      ? ((freqCourante - 1) % freqEntretienAnnuelle) + 1
+      : freqCourante;
+
   switch (freqEntretienAnnuelle) {
     case 1:
-      if (freqCourante != 1) return null;
+      if (courante != 1) return null;
       return HeuresVisite(reference.hrsTechAn, reference.hrsAssistantAn);
     case 2:
-      switch (freqCourante) {
+      switch (courante) {
         case 1:
           return HeuresVisite(reference.hrsTechAn, reference.hrsAssistantAn);
         case 2:
@@ -73,7 +86,7 @@ HeuresVisite? calculerHeuresVisite({
           return null;
       }
     case 4:
-      switch (freqCourante) {
+      switch (courante) {
         case 1:
           return HeuresVisite(reference.hrsTechAn, reference.hrsAssistantAn);
         case 2:

@@ -23,13 +23,13 @@ const Map<String, String> _colonneVersCle = {
   'numéro série unité extérieure': 'numSerieUExt',
   'date interv prévue': 'dateIntervPrevue',
   'nom tech': 'nomTech',
-  'type visite': 'typeVisite',
   'réfrigérant': 'typeRefrigerant',
   'charge réfrigérant kg': 'chargeRefrigerant',
   'tension alim.': 'tensionAlim',
   'puissance': 'puissance',
   'fréquence entretien annuelle': 'freqEntretienAnnuelle',
-  'fréquence courante': 'freqCourante',
+  // "Fréquence courante" n'est plus importée : elle est calculée depuis
+  // l'historique des relevés (voir releve_service.dart).
 };
 
 String _normaliser(String s) =>
