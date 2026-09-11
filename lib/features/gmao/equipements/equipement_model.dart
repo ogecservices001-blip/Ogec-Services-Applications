@@ -20,6 +20,18 @@ class EquipementModel {
   final String referenceHoraireId;
   final Map<String, dynamic> champsEnTete;
 
+  /// true si cet équipement précis est hors contrat, indépendamment du
+  /// client (ex: matériel installé en plus chez un client par ailleurs
+  /// en contrat — voir l'automatisation "Installation" du Bon
+  /// d'intervention Petits travaux). Un client déjà entièrement hors
+  /// contrat n'a pas besoin de ce marquage sur chacun de ses équipements.
+  final bool horsContrat;
+
+  /// Note libre pour le prochain technicien (ex: suite à une réparation
+  /// ou un remplacement via un Bon d'intervention) — affichée en
+  /// évidence sur la fiche, pas un champ d'en-tête classique.
+  final String remarqueTechnicien;
+
   EquipementModel({
     required this.id,
     required this.clientId,
@@ -30,6 +42,8 @@ class EquipementModel {
     this.groupe = '',
     this.referenceHoraireId = '',
     this.champsEnTete = const {},
+    this.horsContrat = false,
+    this.remarqueTechnicien = '',
   });
 
   factory EquipementModel.fromFirestore(DocumentSnapshot doc) {
@@ -44,6 +58,8 @@ class EquipementModel {
       groupe: data['groupe'] ?? '',
       referenceHoraireId: data['referenceHoraireId'] ?? '',
       champsEnTete: Map<String, dynamic>.from(data['champsEnTete'] ?? {}),
+      horsContrat: data['horsContrat'] ?? false,
+      remarqueTechnicien: data['remarqueTechnicien'] ?? '',
     );
   }
 
@@ -56,6 +72,8 @@ class EquipementModel {
     'groupe': groupe,
     'referenceHoraireId': referenceHoraireId,
     'champsEnTete': champsEnTete,
+    'horsContrat': horsContrat,
+    'remarqueTechnicien': remarqueTechnicien,
   };
 }
 

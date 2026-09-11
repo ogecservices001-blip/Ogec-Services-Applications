@@ -22,6 +22,7 @@ import '../gmao/references_horaires/references_horaires_list_screen.dart';
 import '../gmao/gmao_home_screen.dart';
 import '../bon_intervention/wizard/bi_wizard_screen.dart' show biAccent;
 import '../bon_intervention/bureau/bi_list_screen.dart';
+import '../affaires/travaux_clients_screen.dart';
 import 'widgets/app_version_label.dart';
 import 'widgets/dashboard_grid_card.dart';
 import 'widgets/dashboard_section_screen.dart';
@@ -287,6 +288,16 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             color: Colors.orange[700]!,
           ),
         ),
+      ),
+    ),
+    DashboardGridCard(
+      title: "Travaux Clients",
+      icon: Icons.assignment_outlined,
+      color: travauxAccent,
+      subtitle: "Travaux sur devis, en plus du contrat",
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const TravauxClientsScreen()),
       ),
     ),
     DashboardGridCard(

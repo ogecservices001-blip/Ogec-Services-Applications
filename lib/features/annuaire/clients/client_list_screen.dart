@@ -28,6 +28,11 @@ class ClientListScreen extends StatefulWidget {
   /// parc GMAO de ce site, ou supprimer sa fiche Répertoire).
   final Future<void> Function(ClientModel client)? onDeleteTap;
 
+  /// Si fourni, ajoute une ligne sous le sous-titre habituel (ex:
+  /// "3 affaire(s)" pour Travaux Clients) — calculé synchrone par
+  /// l'appelant, pas de nouvelle requête ici.
+  final String? Function(ClientModel client)? countLabel;
+
   const ClientListScreen({
     super.key,
     this.filterHorsContrat,
@@ -36,6 +41,7 @@ class ClientListScreen extends StatefulWidget {
     this.color = Colors.green,
     this.onClientTap,
     this.onDeleteTap,
+    this.countLabel,
   });
 
   @override
@@ -163,7 +169,18 @@ class _ClientListScreenState extends State<ClientListScreen> {
                     client.site,
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
-                  subtitle: Text("${client.nom} - ${client.commune}"),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text("${client.nom} - ${client.commune}"),
+                      if (widget.countLabel != null && widget.countLabel!(client) != null)
+                        Text(
+                          widget.countLabel!(client)!,
+                          style: TextStyle(fontSize: 12, color: widget.color),
+                        ),
+                    ],
+                  ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [

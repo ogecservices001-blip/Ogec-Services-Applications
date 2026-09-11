@@ -353,15 +353,35 @@ class _ClientEquipementsListScreenState
   ) {
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: eq.horsContrat ? const BorderSide(color: Colors.orange, width: 1.5) : BorderSide.none,
+      ),
+      color: eq.horsContrat ? Colors.orange.withValues(alpha: 0.06) : null,
       child: Column(
         children: [
           ListTile(
-            leading: const Icon(
+            leading: Icon(
               Icons.precision_manufacturing_outlined,
-              color: Colors.teal,
+              color: eq.horsContrat ? Colors.orange[800] : Colors.teal,
             ),
-            title: Text(eq.nom),
+            title: Row(
+              children: [
+                Expanded(child: Text(eq.nom)),
+                if (eq.horsContrat)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      'Hors contrat',
+                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.orange[800]),
+                    ),
+                  ),
+              ],
+            ),
             subtitle: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -388,6 +408,29 @@ class _ClientEquipementsListScreenState
                   )
                 : null,
           ),
+          if (eq.remarqueTechnicien.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.sticky_note_2_outlined, size: 16, color: Colors.amber),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(eq.remarqueTechnicien, style: const TextStyle(fontSize: 12)),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           if (!readOnly)
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),

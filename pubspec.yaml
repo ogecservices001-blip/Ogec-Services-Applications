@@ -2,7 +2,7 @@ name: ogec_services_app
 description: "Application unifiée OGEC Services — CERFA et répertoire clients/fournisseurs"
 publish_to: 'none'
 
-version: 1.0.4+5
+version: 1.0.8+9
 
 environment:
   sdk: '>=3.10.0 <4.0.0'

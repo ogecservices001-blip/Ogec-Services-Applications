@@ -92,9 +92,31 @@ class BonIntervention {
 
   // Équipement du parc GMAO concerné — Maintenance/Dépannage
   // uniquement, optionnel (le cas où il n'existe pas encore dans le
-  // parc n'est pas géré pour l'instant).
+  // parc n'est pas géré pour l'instant). Réutilisé aussi pour Petits
+  // travaux quand la nature est remplacement/réparation (voir
+  // natureTravaux ci-dessous) — même concept, un équipement existant du
+  // parc.
   String equipementId;
   String equipementNom;
+
+  // Petits travaux uniquement — l'affaire (travaux sur devis, voir
+  // module `affaires`) dont ce bon assure la réalisation, et la nature
+  // du travail : remplacement/réparation (équipement existant choisi
+  // ci-dessus) ou installation (nouvel équipement, pas encore dans le
+  // parc — géré plus tard).
+  String affaireId;
+  String affaireNumeroDevis;
+  String natureTravaux;
+
+  // Nature "remplacement" uniquement — nouveau matériel posé à la
+  // place de l'existant, écrase les champs correspondants de la fiche
+  // équipement à la validation bureau (voir GmaoDatabaseService).
+  String remplacementMarque;
+  String remplacementReferenceUInt;
+  String remplacementNumSerieUInt;
+  String remplacementReferenceUExt;
+  String remplacementNumSerieUExt;
+  String remplacementDateMES;
 
   // Dates — règles par pôle
   String dateDebut; // pôle 20
@@ -147,6 +169,15 @@ class BonIntervention {
     this.horsContrat = false,
     this.equipementId = '',
     this.equipementNom = '',
+    this.affaireId = '',
+    this.affaireNumeroDevis = '',
+    this.natureTravaux = '',
+    this.remplacementMarque = '',
+    this.remplacementReferenceUInt = '',
+    this.remplacementNumSerieUInt = '',
+    this.remplacementReferenceUExt = '',
+    this.remplacementNumSerieUExt = '',
+    this.remplacementDateMES = '',
     this.dateDebut = '',
     this.dateFin = '',
     this.dateIntervention = '',
@@ -196,6 +227,15 @@ class BonIntervention {
       horsContrat: d['horsContrat'] ?? false,
       equipementId: d['equipementId'] ?? '',
       equipementNom: d['equipementNom'] ?? '',
+      affaireId: d['affaireId'] ?? '',
+      affaireNumeroDevis: d['affaireNumeroDevis'] ?? '',
+      natureTravaux: d['natureTravaux'] ?? '',
+      remplacementMarque: d['remplacementMarque'] ?? '',
+      remplacementReferenceUInt: d['remplacementReferenceUInt'] ?? '',
+      remplacementNumSerieUInt: d['remplacementNumSerieUInt'] ?? '',
+      remplacementReferenceUExt: d['remplacementReferenceUExt'] ?? '',
+      remplacementNumSerieUExt: d['remplacementNumSerieUExt'] ?? '',
+      remplacementDateMES: d['remplacementDateMES'] ?? '',
       dateDebut: d['dateDebut'] ?? '',
       dateFin: d['dateFin'] ?? '',
       dateIntervention: d['dateIntervention'] ?? '',
@@ -246,6 +286,15 @@ class BonIntervention {
     'horsContrat': horsContrat,
     'equipementId': equipementId,
     'equipementNom': equipementNom,
+    'affaireId': affaireId,
+    'affaireNumeroDevis': affaireNumeroDevis,
+    'natureTravaux': natureTravaux,
+    'remplacementMarque': remplacementMarque,
+    'remplacementReferenceUInt': remplacementReferenceUInt,
+    'remplacementNumSerieUInt': remplacementNumSerieUInt,
+    'remplacementReferenceUExt': remplacementReferenceUExt,
+    'remplacementNumSerieUExt': remplacementNumSerieUExt,
+    'remplacementDateMES': remplacementDateMES,
     'dateDebut': dateDebut,
     'dateFin': dateFin,
     'dateIntervention': dateIntervention,

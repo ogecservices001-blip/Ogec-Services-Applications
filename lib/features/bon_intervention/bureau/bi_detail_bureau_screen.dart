@@ -3,6 +3,10 @@ import 'package:printing/printing.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/auth/admin_google_session.dart';
 import '../../../core/services/user_service.dart';
+import '../../affaires/data/affaire_constants.dart';
+import '../../gmao/equipements/equipement_model.dart';
+import '../../gmao/gmao_database_service.dart';
+import '../../gmao/types_equipement/type_equipement_model.dart';
 import '../data/bi_constants.dart';
 import '../data/bi_format.dart';
 import '../data/bi_model.dart';
@@ -30,8 +34,17 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
   final BiService _biService = BiService();
   final UserService _userService = UserService();
   final BiDriveService _driveService = BiDriveService();
+  final GmaoDatabaseService _gmaoDb = GmaoDatabaseService();
   bool _validationEnCours = false;
   bool _pdfEnCours = false;
+
+  // Petits travaux · Installation uniquement — le BI ne collecte encore
+  // aucune info sur le nouveau matériel (voir Étape B), le bureau les
+  // saisit ici juste avant de valider, pour créer une fiche minimale
+  // dans le parc GMAO plutôt que rien du tout.
+  final _installationNomController = TextEditingController();
+  final _installationLocalisationController = TextEditingController();
+  String? _installationTypeEquipementId;
 
   Future<void> _voirPdf(BonIntervention b) async {
     setState(() => _pdfEnCours = true);
@@ -119,10 +132,67 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
       _emailController.dispose();
       _numeroDevisController.dispose();
     }
+    _installationNomController.dispose();
+    _installationLocalisationController.dispose();
     super.dispose();
   }
 
   bool get _emailValide => RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(_emailController.text.trim());
+
+  bool _peutValider(BonIntervention original) {
+    if (!_emailValide) return false;
+    if (original.pole == Poles.petitsTravaux && original.natureTravaux == NatureAffaire.installation) {
+      return _installationNomController.text.trim().isNotEmpty && _installationTypeEquipementId != null;
+    }
+    return true;
+  }
+
+  /// Automatisation GMAO déclenchée par la validation bureau d'un bon
+  /// Petits travaux, selon la nature du travail (voir affaires/BI Étape
+  /// C) — ne doit jamais bloquer la validation du bon elle-même si elle
+  /// échoue, appelée après le `saveBI` réussi.
+  Future<void> _executerAutomatisationGmao(BonIntervention bi) async {
+    if (bi.pole != Poles.petitsTravaux) return;
+    final date = BiFormat.now();
+    switch (bi.natureTravaux) {
+      case NatureAffaire.reparation:
+        if (bi.equipementId.isEmpty) return;
+        await _gmaoDb.ajouterRemarqueEquipement(
+          bi.equipementId,
+          'Réparé le $date via ${bi.numero} : ${bi.compteRendu}',
+        );
+        break;
+      case NatureAffaire.remplacement:
+        if (bi.equipementId.isEmpty) return;
+        await _gmaoDb.ajouterRemarqueEquipement(
+          bi.equipementId,
+          'Remplacé le $date via ${bi.numero} : ${bi.compteRendu}',
+        );
+        final data = <String, dynamic>{};
+        if (bi.remplacementMarque.isNotEmpty) data['champsEnTete.marque'] = bi.remplacementMarque;
+        if (bi.remplacementReferenceUInt.isNotEmpty) data['champsEnTete.referenceUInt'] = bi.remplacementReferenceUInt;
+        if (bi.remplacementNumSerieUInt.isNotEmpty) data['champsEnTete.numSerieUInt'] = bi.remplacementNumSerieUInt;
+        if (bi.remplacementReferenceUExt.isNotEmpty) data['champsEnTete.referenceUExt'] = bi.remplacementReferenceUExt;
+        if (bi.remplacementNumSerieUExt.isNotEmpty) data['champsEnTete.numSerieUExt'] = bi.remplacementNumSerieUExt;
+        if (bi.remplacementDateMES.isNotEmpty) data['champsEnTete.dateMES'] = bi.remplacementDateMES;
+        if (data.isNotEmpty) await _gmaoDb.updateEquipement(bi.equipementId, data);
+        break;
+      case NatureAffaire.installation:
+        if (_installationTypeEquipementId == null || _installationNomController.text.trim().isEmpty) return;
+        await _gmaoDb.addEquipement(
+          EquipementModel(
+            id: '',
+            clientId: bi.clientId,
+            typeEquipementId: _installationTypeEquipementId!,
+            nom: _installationNomController.text.trim(),
+            localisation: _installationLocalisationController.text.trim(),
+            horsContrat: !bi.horsContrat,
+            remarqueTechnicien: 'Installé le $date via ${bi.numero} : ${bi.compteRendu}',
+          ),
+        );
+        break;
+    }
+  }
 
   Future<void> _valider(BonIntervention original) async {
     setState(() => _validationEnCours = true);
@@ -165,6 +235,17 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
         adresse: original.adresse,
         email: _emailController.text.trim(),
         horsContrat: original.horsContrat,
+        equipementId: original.equipementId,
+        equipementNom: original.equipementNom,
+        affaireId: original.affaireId,
+        affaireNumeroDevis: original.affaireNumeroDevis,
+        natureTravaux: original.natureTravaux,
+        remplacementMarque: original.remplacementMarque,
+        remplacementReferenceUInt: original.remplacementReferenceUInt,
+        remplacementNumSerieUInt: original.remplacementNumSerieUInt,
+        remplacementReferenceUExt: original.remplacementReferenceUExt,
+        remplacementNumSerieUExt: original.remplacementNumSerieUExt,
+        remplacementDateMES: original.remplacementDateMES,
         dateDebut: _dateDebut,
         dateFin: _dateFin,
         dateIntervention: _dateIntervention,
@@ -195,6 +276,12 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
       if (changes.isNotEmpty) {
         final nom = await _userService.getCurrentUserName();
         await _biService.pushHistory(bi.id, HistoryEntry(user: nom, date: BiFormat.now(), changes: changes));
+      }
+      try {
+        await _executerAutomatisationGmao(bi);
+      } catch (_) {
+        // L'automatisation GMAO ne doit jamais empêcher la validation du
+        // bon lui-même — une erreur ici reste silencieuse pour l'usager.
       }
 
       if (!mounted) return;
@@ -325,6 +412,8 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
       _sectionCard('Intervention', [
         _infoLigne('Pôle', '${b.pole} · ${Poles.label(b.pole)}'),
         _infoLigne('Technicien(s)', b.techniciens.join(', ')),
+        if (b.affaireNumeroDevis.isNotEmpty) _infoLigne('Affaire', b.affaireNumeroDevis),
+        if (b.natureTravaux.isNotEmpty) _infoLigne('Nature', NatureAffaire.label(b.natureTravaux)),
         if (b.equipementNom.isNotEmpty) _infoLigne('Équipement', b.equipementNom),
         ..._lignesDates(b).map((e) => _infoLigne(e.key, e.value)),
         if (b.numeroDevis.isNotEmpty) _infoLigne('N° devis lié', b.numeroDevis),
@@ -430,6 +519,37 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
           onChanged: (_) => setState(() {}),
         ),
       ]),
+      if (original.pole == Poles.petitsTravaux && original.natureTravaux == NatureAffaire.installation)
+        _sectionCard('Nouveau matériel installé — fiche GMAO', [
+          Text(
+            'Le bon ne décrit pas le matériel posé : saisis ici de quoi créer sa fiche dans le parc.',
+            style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+          ),
+          const SizedBox(height: 8),
+          TextFormField(
+            controller: _installationNomController,
+            decoration: const InputDecoration(labelText: 'Nom de l\'équipement', border: OutlineInputBorder(), isDense: true),
+            onChanged: (_) => setState(() {}),
+          ),
+          const SizedBox(height: 10),
+          StreamBuilder<List<TypeEquipementModel>>(
+            stream: _gmaoDb.getTypesEquipement(),
+            builder: (context, snapshot) {
+              final types = snapshot.data ?? const <TypeEquipementModel>[];
+              return DropdownButtonFormField<String>(
+                initialValue: _installationTypeEquipementId,
+                decoration: const InputDecoration(labelText: 'Famille d\'équipement', border: OutlineInputBorder(), isDense: true),
+                items: types.map((t) => DropdownMenuItem(value: t.id, child: Text(t.nom))).toList(),
+                onChanged: (v) => setState(() => _installationTypeEquipementId = v),
+              );
+            },
+          ),
+          const SizedBox(height: 10),
+          TextFormField(
+            controller: _installationLocalisationController,
+            decoration: const InputDecoration(labelText: 'Localisation (optionnel)', border: OutlineInputBorder(), isDense: true),
+          ),
+        ]),
       _sectionCard('Prestations & fournitures — prix unitaires HT (bureau)', [
         for (var i = 0; i < _prestas.length; i++) _lignePrestaBureau(i),
         TextButton.icon(
@@ -451,7 +571,7 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
           width: double.infinity,
           height: 52,
           child: ElevatedButton(
-            onPressed: (_validationEnCours || !_emailValide) ? null : () => _valider(original),
+            onPressed: (_validationEnCours || !_peutValider(original)) ? null : () => _valider(original),
             style: ElevatedButton.styleFrom(backgroundColor: biAccent, foregroundColor: Colors.white),
             child: _validationEnCours
                 ? const SizedBox(

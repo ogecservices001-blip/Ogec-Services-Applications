@@ -15,6 +15,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   bool _rememberMe = false;
+  bool _afficherMotDePasse = false;
 
   @override
   void initState() {
@@ -121,7 +122,7 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 16),
               TextField(
                 controller: _passwordController,
-                obscureText: true,
+                obscureText: !_afficherMotDePasse,
                 decoration: const InputDecoration(
                   labelText: "Mot de passe",
                   border: OutlineInputBorder(),
@@ -141,6 +142,20 @@ class _LoginScreenState extends State<LoginScreen> {
                     },
                   ),
                   const Text("Se souvenir de moi"),
+                ],
+              ),
+              Row(
+                children: [
+                  Checkbox(
+                    value: _afficherMotDePasse,
+                    activeColor: Colors.blueGrey[800],
+                    onChanged: (value) {
+                      setState(() {
+                        _afficherMotDePasse = value ?? false;
+                      });
+                    },
+                  ),
+                  const Text("Afficher le mot de passe"),
                 ],
               ),
               const SizedBox(height: 14),

@@ -61,6 +61,27 @@ class VerificationDossier {
 class AdminDriveService {
   static const String templateFileId = '1RJMEnQJEu1VHcDvM_hH26qxkLIVxKvuq';
 
+  /// Ré-essaie un appel réseau en cas de coupure passagère (observé sur
+  /// mobile : "Failed host lookup", "connection abort" — pas des erreurs
+  /// Drive, juste une connexion qui lâche un instant au milieu de
+  /// centaines de requêtes à la suite lors d'une vérification complète).
+  /// Ne masque pas une vraie erreur Drive (404, permission...) : au bout
+  /// de 3 tentatives, l'erreur d'origine remonte telle quelle.
+  Future<T> _avecRetries<T>(Future<T> Function() action) async {
+    Object erreur = Exception('Échec réseau');
+    for (var tentative = 0; tentative < 3; tentative++) {
+      try {
+        return await action();
+      } catch (e) {
+        erreur = e;
+        if (tentative < 2) {
+          await Future.delayed(Duration(milliseconds: 400 * (tentative + 1)));
+        }
+      }
+    }
+    throw erreur;
+  }
+
   /// Dossier racine sous lequel sont créés les dossiers de site lors de
   /// l'ajout d'un nouvel équipement (à plat, pas de sous-dossiers).
   static const String dossierRacineClientsId =
@@ -349,9 +370,9 @@ class AdminDriveService {
 
         if (folderId != null) {
           try {
-            await driveApi.files.get(folderId, $fields: 'id');
-          } catch (_) {
-            problemes.add('Dossier Drive inaccessible ou supprimé');
+            await _avecRetries(() => driveApi.files.get(folderId!, $fields: 'id'));
+          } catch (err) {
+            problemes.add('Dossier Drive inaccessible ou supprimé : $err');
             folderId = null;
           }
         }
@@ -359,10 +380,12 @@ class AdminDriveService {
         if (folderId != null) {
           final nomModele = nomModeleAttendu(e);
           try {
-            final recherche = await driveApi.files.list(
-              q: "name = '$nomModele' and '$folderId' in parents and trashed = false",
-              spaces: 'drive',
-              $fields: 'files(id)',
+            final recherche = await _avecRetries(
+              () => driveApi.files.list(
+                q: "name = '$nomModele' and '$folderId' in parents and trashed = false",
+                spaces: 'drive',
+                $fields: 'files(id)',
+              ),
             );
             if (recherche.files == null || recherche.files!.isEmpty) {
               problemes.add('Modèle PDF absent ($nomModele)');
@@ -432,9 +455,9 @@ class AdminDriveService {
 
       if (folderId != null) {
         try {
-          await driveApi.files.get(folderId, $fields: 'id');
-        } catch (_) {
-          problemes.add('Dossier Drive inaccessible ou supprimé');
+          await _avecRetries(() => driveApi.files.get(folderId!, $fields: 'id'));
+        } catch (err) {
+          problemes.add('Dossier Drive inaccessible ou supprimé : $err');
           folderId = null;
         }
       }
@@ -442,10 +465,12 @@ class AdminDriveService {
       if (folderId != null) {
         final nomModele = nomModeleAttendu(e);
         try {
-          final recherche = await driveApi.files.list(
-            q: "name = '$nomModele' and '$folderId' in parents and trashed = false",
-            spaces: 'drive',
-            $fields: 'files(id)',
+          final recherche = await _avecRetries(
+            () => driveApi.files.list(
+              q: "name = '$nomModele' and '$folderId' in parents and trashed = false",
+              spaces: 'drive',
+              $fields: 'files(id)',
+            ),
           );
           if (recherche.files == null || recherche.files!.isEmpty) {
             problemes.add('Modèle PDF absent ($nomModele)');

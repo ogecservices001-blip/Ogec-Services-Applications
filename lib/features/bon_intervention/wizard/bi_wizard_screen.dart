@@ -5,6 +5,10 @@ import 'package:image_picker/image_picker.dart';
 import 'package:printing/printing.dart';
 import 'package:signature/signature.dart';
 import '../../../core/services/user_service.dart';
+import '../../affaires/client_affaires_list_screen.dart';
+import '../../affaires/data/affaire_constants.dart';
+import '../../affaires/data/affaire_model.dart';
+import '../../affaires/travaux_clients_screen.dart';
 import '../../annuaire/clients/client_model.dart';
 import '../../gmao/equipements/equipement_model.dart';
 import '../data/bi_constants.dart';
@@ -49,6 +53,18 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
 
   ClientModel? _client;
   EquipementModel? _equipement;
+
+  // Petits travaux uniquement.
+  AffaireModel? _affaire;
+  String _typeTravail = ''; // 'existant' | 'installation'
+  String _natureTravaux = '';
+  final _remplacementMarqueController = TextEditingController();
+  final _remplacementRefUIntController = TextEditingController();
+  final _remplacementNumSerieUIntController = TextEditingController();
+  final _remplacementRefUExtController = TextEditingController();
+  final _remplacementNumSerieUExtController = TextEditingController();
+  String _remplacementDateMES = '';
+
   final _emailController = TextEditingController();
 
   // ---------- Étape 1 : Dates / heures ----------
@@ -105,6 +121,11 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   @override
   void dispose() {
     _emailController.dispose();
+    _remplacementMarqueController.dispose();
+    _remplacementRefUIntController.dispose();
+    _remplacementNumSerieUIntController.dispose();
+    _remplacementRefUExtController.dispose();
+    _remplacementNumSerieUExtController.dispose();
     _tempsPasseController.dispose();
     _compteRenduController.dispose();
     _obsTechController.dispose();
@@ -124,6 +145,13 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
     setState(() {
       _pole = pole;
       if (!Poles.avecEquipement(pole)) _equipement = null;
+      if (pole != Poles.petitsTravaux) {
+        _affaire = null;
+        _typeTravail = '';
+        _natureTravaux = '';
+        _equipement = null;
+        _effacerRemplacement();
+      }
       // Pas encore de numéro réservé cette session : seul le segment
       // pôle du numéro déjà affiché change (voir _assurerNumero — le
       // vrai chrono n'est tiré qu'au premier enregistrement, pour ne
@@ -169,7 +197,49 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
     if (mounted) setState(() => _allocationEnCours = false);
   }
 
+  void _effacerRemplacement() {
+    _remplacementMarqueController.clear();
+    _remplacementRefUIntController.clear();
+    _remplacementNumSerieUIntController.clear();
+    _remplacementRefUExtController.clear();
+    _remplacementNumSerieUExtController.clear();
+    _remplacementDateMES = '';
+  }
+
+  void _preremplirDepuisSite(ClientModel site) {
+    // Pré-rempli depuis la fiche Répertoire — reste modifiable, le
+    // technicien corrige si l'interlocuteur présent sur place n'est
+    // pas celui enregistré.
+    _signataireController.text = site.interlocuteurSite;
+    _signataireTelPortableController.text = site.portableInterlocuteurSite;
+    _signataireTelFixeController.text = site.telFixeInterlocuteurSite;
+    _emailController.text = site.courrielInterlocuteurSite;
+  }
+
   Future<void> _choisirClient() async {
+    // Petits travaux : le client se choisit en passant directement par le
+    // Répertoire Travaux Clients — c'est sa raison d'être — plutôt qu'un
+    // picker dédié ; il renvoie client + affaire choisis ensemble.
+    if (_pole == Poles.petitsTravaux) {
+      final resultat = await Navigator.push<(ClientModel, AffaireModel)>(
+        context,
+        MaterialPageRoute(builder: (context) => const TravauxClientsScreen(modeSelection: true)),
+      );
+      if (resultat != null && mounted) {
+        final (site, affaire) = resultat;
+        setState(() {
+          _client = site;
+          _affaire = affaire;
+          _equipement = null;
+          _typeTravail = '';
+          _natureTravaux = '';
+          _effacerRemplacement();
+          _preremplirDepuisSite(site);
+        });
+      }
+      return;
+    }
+
     final site = await Navigator.push<ClientModel>(
       context,
       MaterialPageRoute(builder: (context) => const BiClientPickerScreen()),
@@ -178,15 +248,23 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       setState(() {
         _client = site;
         _equipement = null;
-        // Pré-rempli depuis la fiche Répertoire — reste modifiable, le
-        // technicien corrige si l'interlocuteur présent sur place n'est
-        // pas celui enregistré.
-        _signataireController.text = site.interlocuteurSite;
-        _signataireTelPortableController.text = site.portableInterlocuteurSite;
-        _signataireTelFixeController.text = site.telFixeInterlocuteurSite;
-        _emailController.text = site.courrielInterlocuteurSite;
+        _affaire = null;
+        _typeTravail = '';
+        _natureTravaux = '';
+        _effacerRemplacement();
+        _preremplirDepuisSite(site);
       });
     }
+  }
+
+  Future<void> _choisirAffaire() async {
+    final client = _client;
+    if (client == null) return;
+    final affaire = await Navigator.push<AffaireModel>(
+      context,
+      MaterialPageRoute(builder: (context) => ClientAffairesListScreen(client: client, modeSelection: true)),
+    );
+    if (affaire != null && mounted) setState(() => _affaire = affaire);
   }
 
   Future<void> _choisirEquipement() async {
@@ -281,6 +359,19 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
     }
   }
 
+  /// Petits travaux : affaire obligatoire, puis équipement+nature
+  /// (remplacement/réparation) ou installation — impossible d'avancer
+  /// sans avoir fait ce choix jusqu'au bout.
+  bool get _peutAvancerEtape0 {
+    if (_pole.isEmpty || _client == null) return false;
+    if (_pole != Poles.petitsTravaux) return true;
+    if (_affaire == null) return false;
+    if (_typeTravail == 'existant') {
+      return _equipement != null && _natureTravaux.isNotEmpty;
+    }
+    return _typeTravail == 'installation';
+  }
+
   bool get _peutTransmettre =>
       _pole.isNotEmpty &&
       _client != null &&
@@ -311,6 +402,15 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       horsContrat: c?.horsContrat ?? false,
       equipementId: _equipement?.id ?? '',
       equipementNom: _equipement?.nom ?? '',
+      affaireId: _affaire?.id ?? '',
+      affaireNumeroDevis: _affaire?.numeroDevis ?? '',
+      natureTravaux: _natureTravaux,
+      remplacementMarque: _remplacementMarqueController.text.trim(),
+      remplacementReferenceUInt: _remplacementRefUIntController.text.trim(),
+      remplacementNumSerieUInt: _remplacementNumSerieUIntController.text.trim(),
+      remplacementReferenceUExt: _remplacementRefUExtController.text.trim(),
+      remplacementNumSerieUExt: _remplacementNumSerieUExtController.text.trim(),
+      remplacementDateMES: _remplacementDateMES,
       dateDebut: _dateDebut,
       dateFin: _dateFin,
       dateIntervention: _dateIntervention,
@@ -503,7 +603,7 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
             if (!dernierEtape)
               Expanded(
                 child: ElevatedButton(
-                  onPressed: (_etape == 0 && (_pole.isEmpty || _client == null))
+                  onPressed: (_etape == 0 && !_peutAvancerEtape0)
                       ? null
                       : () => setState(() => _etape++),
                   style: ElevatedButton.styleFrom(backgroundColor: biAccent, foregroundColor: Colors.white),
@@ -603,6 +703,10 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
                     onPressed: () => setState(() {
                       _client = null;
                       _equipement = null;
+                      _affaire = null;
+                      _typeTravail = '';
+                      _natureTravaux = '';
+                      _effacerRemplacement();
                     }),
                   ),
                 ],
@@ -640,8 +744,185 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
               style: OutlinedButton.styleFrom(foregroundColor: biAccent, side: BorderSide(color: biAccent)),
             ),
         ],
+        if (_client != null && _pole == Poles.petitsTravaux) ..._blocPetitsTravaux(),
       ],
     );
+  }
+
+  List<Widget> _blocPetitsTravaux() {
+    return [
+      _sectionTitle('Affaire'),
+      if (_affaire != null)
+        Card(
+          color: biAccent.withValues(alpha: 0.08),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          child: ListTile(
+            leading: const Icon(Icons.assignment_outlined, color: biAccent),
+            title: Text(_affaire!.numeroDevis.isEmpty ? '(sans n° de devis)' : _affaire!.numeroDevis),
+            subtitle: Text(_affaire!.designationPrestations, maxLines: 2, overflow: TextOverflow.ellipsis),
+            trailing: IconButton(
+              icon: const Icon(Icons.close),
+              onPressed: () => setState(() => _affaire = null),
+            ),
+          ),
+        )
+      else
+        OutlinedButton.icon(
+          onPressed: _choisirAffaire,
+          icon: const Icon(Icons.assignment_outlined),
+          label: const Text('Choisir l\'affaire'),
+          style: OutlinedButton.styleFrom(foregroundColor: biAccent, side: BorderSide(color: biAccent)),
+        ),
+      if (_affaire != null) ...[
+        _sectionTitle('Type de travail'),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ChoiceChip(
+              label: const Text('Équipement existant'),
+              selected: _typeTravail == 'existant',
+              onSelected: (_) => setState(() {
+                _typeTravail = 'existant';
+                _natureTravaux = '';
+                _effacerRemplacement();
+              }),
+              selectedColor: biAccent.withValues(alpha: 0.15),
+            ),
+            ChoiceChip(
+              label: const Text('Installation nouveau matériel'),
+              selected: _typeTravail == 'installation',
+              onSelected: (_) => setState(() {
+                _typeTravail = 'installation';
+                _natureTravaux = NatureAffaire.installation;
+                _equipement = null;
+                _effacerRemplacement();
+              }),
+              selectedColor: biAccent.withValues(alpha: 0.15),
+            ),
+          ],
+        ),
+      ],
+      if (_typeTravail == 'existant') ...[
+        _sectionTitle('Équipement'),
+        if (_equipement != null)
+          Card(
+            color: biAccent.withValues(alpha: 0.08),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            child: ListTile(
+              leading: const Icon(Icons.precision_manufacturing_outlined, color: biAccent),
+              title: Text(_equipement!.nom),
+              subtitle: Text(_equipement!.localisation.isEmpty ? '—' : _equipement!.localisation),
+              trailing: IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => setState(() => _equipement = null),
+              ),
+            ),
+          )
+        else
+          OutlinedButton.icon(
+            onPressed: _choisirEquipement,
+            icon: const Icon(Icons.precision_manufacturing_outlined),
+            label: const Text('Choisir un équipement du parc GMAO'),
+            style: OutlinedButton.styleFrom(foregroundColor: biAccent, side: BorderSide(color: biAccent)),
+          ),
+        if (_equipement != null) ...[
+          _sectionTitle('Nature'),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [NatureAffaire.remplacement, NatureAffaire.reparation].map((n) {
+              return ChoiceChip(
+                label: Text(NatureAffaire.label(n)),
+                selected: _natureTravaux == n,
+                onSelected: (_) => setState(() {
+                  _natureTravaux = n;
+                  if (n != NatureAffaire.remplacement) _effacerRemplacement();
+                }),
+                selectedColor: biAccent.withValues(alpha: 0.15),
+              );
+            }).toList(),
+          ),
+        ],
+        if (_natureTravaux == NatureAffaire.remplacement) ...[
+          _sectionTitle('Nouveau matériel'),
+          TextField(
+            controller: _remplacementMarqueController,
+            decoration: const InputDecoration(labelText: 'Marque', border: OutlineInputBorder(), isDense: true),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _remplacementRefUIntController,
+                  decoration: const InputDecoration(
+                    labelText: 'Référence unité intérieure',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _remplacementNumSerieUIntController,
+                  decoration: const InputDecoration(
+                    labelText: 'N° série unité intérieure',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _remplacementRefUExtController,
+                  decoration: const InputDecoration(
+                    labelText: 'Référence unité extérieure',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _remplacementNumSerieUExtController,
+                  decoration: const InputDecoration(
+                    labelText: 'N° série unité extérieure',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          InkWell(
+            onTap: () => _choisirDate((d) {
+              setState(() {
+                _remplacementDateMES =
+                    '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+              });
+              return true;
+            }),
+            child: InputDecorator(
+              decoration: const InputDecoration(
+                labelText: 'Date de mise en service',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              child: Text(_remplacementDateMES.isEmpty ? '—' : _remplacementDateMES),
+            ),
+          ),
+        ],
+      ],
+    ];
   }
 
   // ---------- Étape 1 ----------

@@ -28,6 +28,16 @@ class GmaoDatabaseService {
     await _db.collection('equipements').doc(id).update(data);
   }
 
+  /// Ajoute une note à la suite des remarques déjà présentes sur la
+  /// fiche (jamais d'écrasement) — utilisé par l'automatisation
+  /// Réparation/Remplacement du Bon d'intervention Petits travaux.
+  Future<void> ajouterRemarqueEquipement(String id, String texte) async {
+    final doc = await _db.collection('equipements').doc(id).get();
+    final existante = (doc.data()?['remarqueTechnicien'] ?? '').toString();
+    final nouvelle = existante.isEmpty ? texte : '$existante\n---\n$texte';
+    await _db.collection('equipements').doc(id).update({'remarqueTechnicien': nouvelle});
+  }
+
   Future<void> deleteEquipement(String id) async {
     await _db.collection('equipements').doc(id).delete();
   }

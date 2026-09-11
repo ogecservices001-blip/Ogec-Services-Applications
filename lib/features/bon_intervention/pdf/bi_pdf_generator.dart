@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import '../../affaires/data/affaire_constants.dart';
 import '../data/bi_constants.dart';
 import '../data/bi_format.dart';
 import '../data/bi_model.dart';
@@ -51,6 +52,9 @@ class BiPdfGenerator {
           pw.SizedBox(height: 4),
           _section('OGEC', bold),
           _kv('Technicien(s)', b.techniciens.join(', ').isEmpty ? '—' : b.techniciens.join(', '), styleBold, style),
+          if (b.affaireNumeroDevis.isNotEmpty) _kv('Affaire', b.affaireNumeroDevis, styleBold, style),
+          if (b.natureTravaux.isNotEmpty)
+            _kv('Nature', NatureAffaire.label(b.natureTravaux), styleBold, style),
           if (b.equipementNom.isNotEmpty) _kv('Équipement', b.equipementNom, styleBold, style),
           for (final ligne in _lignesDates(b)) _kv(ligne.key, ligne.value, styleBold, style),
           if (b.numeroDevis.isNotEmpty) _kv('N° devis lié', b.numeroDevis, styleBold, style),
