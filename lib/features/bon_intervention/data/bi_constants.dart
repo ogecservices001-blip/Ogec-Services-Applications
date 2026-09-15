@@ -6,21 +6,16 @@ class Poles {
   static const petitsTravaux = '10';
   static const maintenance = '20';
   static const depannage = '30';
+  static const livraison = '40';
 
   static const Map<String, String> all = {
     petitsTravaux: 'Petits travaux',
     maintenance: 'Maintenance',
     depannage: 'Dépannage',
+    livraison: 'Livraison',
   };
 
   static String label(String code) => all[code] ?? code;
-
-  /// Pôles qui portent une heure d'arrivée et une heure de départ —
-  /// indispensable au SAV (plusieurs interventions dans la même
-  /// journée) et utile en petits travaux. La maintenance en est
-  /// exclue : elle raisonne en période, pas en horaire.
-  static bool avecHeures(String code) =>
-      code == petitsTravaux || code == depannage;
 
   /// Pôles où l'on propose (en option) de rattacher un équipement du
   /// parc GMAO du site — Petits travaux ne cible pas forcément un

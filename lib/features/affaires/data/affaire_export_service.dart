@@ -11,7 +11,7 @@ const List<String> _colonnesAffaires = [
   'Désignation des prestations',
   'Email responsable contrat',
   'Date de commande client',
-  'Numéro de commande client',
+  'Référence commande client',
   'Nature',
 ];
 

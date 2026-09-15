@@ -176,7 +176,7 @@ class _AffaireFormScreenState extends State<AffaireFormScreen> {
             TextField(
               controller: _numeroCommandeController,
               decoration: const InputDecoration(
-                labelText: 'Numéro de commande client',
+                labelText: 'Référence commande client',
                 border: OutlineInputBorder(),
                 isDense: true,
               ),

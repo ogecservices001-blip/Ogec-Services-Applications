@@ -162,6 +162,13 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
           'Réparé le $date via ${bi.numero} : ${bi.compteRendu}',
         );
         break;
+      case NatureAffaire.entretien:
+        if (bi.equipementId.isEmpty) return;
+        await _gmaoDb.ajouterRemarqueEquipement(
+          bi.equipementId,
+          'Entretien effectué le $date via ${bi.numero} : ${bi.compteRendu}',
+        );
+        break;
       case NatureAffaire.remplacement:
         if (bi.equipementId.isEmpty) return;
         await _gmaoDb.ajouterRemarqueEquipement(
@@ -439,7 +446,10 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
   }
 
   List<Widget> _vueCorrection(BonIntervention original) {
-    final avecHeures = Poles.avecHeures(_pole);
+    // Les heures d'arrivée/départ ne sont plus saisies par le technicien
+    // (retirées de l'assistant) — ce bloc ne reste visible que pour
+    // corriger un bon plus ancien qui en porte déjà.
+    final avecHeuresHeritees = original.heureDebut.isNotEmpty || original.heureFin.isNotEmpty;
     final mesure = BiFormat.dureeEntre(_heureDebut, _heureFin);
     return [
       _sectionCard('Vérification & correction (bureau)', [
@@ -469,7 +479,7 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
               Expanded(child: _champTexte('Temps passé', _tempsPasse, (v) => _tempsPasse = v)),
             ],
           ),
-          if (avecHeures) ...[
+          if (avecHeuresHeritees) ...[
             const SizedBox(height: 10),
             Row(
               children: [

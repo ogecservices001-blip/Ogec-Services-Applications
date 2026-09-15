@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/services/database_service.dart';
+import 'data/affaire_constants.dart';
 import 'data/affaire_import_service.dart';
 import 'data/affaire_model.dart';
 import 'data/affaire_service.dart';
@@ -34,7 +35,8 @@ class _ImportAffairesScreenState extends State<ImportAffairesScreen> {
 
   Future<void> _chargerEtResoudre() async {
     final clients = await _db.getClients().first;
-    final resultat = await _importService.pickParseEtResoudre(clients);
+    final affairesExistantes = await _affaireService.getAllAffaires().first;
+    final resultat = await _importService.pickParseEtResoudre(clients, affairesExistantes);
     if (resultat == null) {
       if (mounted) Navigator.pop(context);
       return;
@@ -52,32 +54,53 @@ class _ImportAffairesScreenState extends State<ImportAffairesScreen> {
 
     setState(() => _importEnCours = true);
     var crees = 0;
+    var misesAJour = 0;
     try {
       for (var i = 0; i < resultat.lignes.length; i++) {
         if (!_lignesCochees.contains(i)) continue;
         final ligne = resultat.lignes[i];
+        final existante = ligne.existante;
+        // Une cellule vide dans le fichier ne doit pas écraser une valeur
+        // déjà saisie côté app (colonnes ajoutées après coup, pas encore
+        // renseignées pour toutes les lignes du classeur) — seule une
+        // valeur non vide du fichier prend le dessus.
+        String depuisFichierOuExistant(String depuisFichier, String? existant) =>
+            depuisFichier.isNotEmpty ? depuisFichier : (existant ?? '');
         await _affaireService.saveAffaire(
           AffaireModel(
+            id: existante?.id ?? '',
             clientId: ligne.client.id,
             clientNom: ligne.client.nom,
             site: ligne.client.site,
             numeroDevis: ligne.numeroDevis,
             designationPrestations: ligne.designationPrestations,
             emailResponsableContrat: ligne.client.courrielResponsable,
+            numeroCommandeClient: depuisFichierOuExistant(ligne.numeroCommandeClient, existante?.numeroCommandeClient),
+            dateCommandeClient: depuisFichierOuExistant(ligne.dateCommandeClient, existante?.dateCommandeClient),
+            nature: depuisFichierOuExistant(ligne.nature, existante?.nature),
+            createdAt: existante?.createdAt ?? 0,
           ),
         );
-        crees++;
+        if (existante != null) {
+          misesAJour++;
+        } else {
+          crees++;
+        }
       }
       if (!mounted) return;
+      final resume = [
+        if (crees > 0) '$crees nouvelle(s)',
+        if (misesAJour > 0) '$misesAJour mise(s) à jour',
+      ].join(', ');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$crees affaire(s) importée(s)')),
+        SnackBar(content: Text(resume.isEmpty ? 'Rien à importer' : 'Import terminé : $resume')),
       );
       Navigator.of(context).pop();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Erreur pendant l\'import ($crees déjà créée(s)) : $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur pendant l\'import ($crees créée(s), $misesAJour mise(s) à jour) : $e')),
+      );
     } finally {
       if (mounted) setState(() => _importEnCours = false);
     }
@@ -181,15 +204,42 @@ class _ImportAffairesScreenState extends State<ImportAffairesScreen> {
         }),
         activeColor: travauxAccent,
         controlAffinity: ListTileControlAffinity.leading,
-        title: Text(
-          ligne.numeroDevis.isEmpty ? '(sans n° de devis)' : ligne.numeroDevis,
-          style: const TextStyle(fontWeight: FontWeight.bold),
+        title: Row(
+          children: [
+            Flexible(
+              child: Text(
+                ligne.numeroDevis.isEmpty ? '(sans n° de devis)' : ligne.numeroDevis,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (ligne.existante != null) ...[
+              const SizedBox(width: 6),
+              Chip(
+                label: const Text('Mise à jour', style: TextStyle(fontSize: 10)),
+                backgroundColor: travauxAccent.withValues(alpha: 0.12),
+                visualDensity: VisualDensity.compact,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ],
+          ],
         ),
-        subtitle: Text(
-          '${ligne.client.nom} — ${ligne.client.site}\n${ligne.designationPrestations}',
-        ),
+        subtitle: Text(_sousTitre(ligne)),
         isThreeLine: true,
       ),
     );
+  }
+
+  String _sousTitre(LigneAffaireImport ligne) {
+    final lignes = [
+      ligne.siteApproximatif
+          ? '${ligne.client.nom} — ${ligne.client.site} (site non précisé, rattaché au 1er site connu)'
+          : '${ligne.client.nom} — ${ligne.client.site}',
+      ligne.designationPrestations,
+      if (ligne.numeroCommandeClient.isNotEmpty) 'Réf. commande client : ${ligne.numeroCommandeClient}',
+      if (ligne.dateCommandeClient.isNotEmpty) 'Date commande : ${ligne.dateCommandeClient}',
+      if (ligne.nature.isNotEmpty) 'Nature : ${NatureAffaire.label(ligne.nature)}',
+    ];
+    return lignes.join('\n');
   }
 }

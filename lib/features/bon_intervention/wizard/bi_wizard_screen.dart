@@ -56,7 +56,7 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
 
   // Petits travaux uniquement.
   AffaireModel? _affaire;
-  String _typeTravail = ''; // 'existant' | 'installation'
+  String _typeTravail = ''; // 'remplacement' | 'installation' | 'divers'
   String _natureTravaux = '';
   final _remplacementMarqueController = TextEditingController();
   final _remplacementRefUIntController = TextEditingController();
@@ -67,12 +67,10 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
 
   final _emailController = TextEditingController();
 
-  // ---------- Étape 1 : Dates / heures ----------
+  // ---------- Étape 1 : Dates ----------
   String _dateDebut = BiFormat.today();
   String _dateFin = BiFormat.today();
   String _dateIntervention = BiFormat.today();
-  String _heureDebut = '';
-  String _heureFin = '';
   final _tempsPasseController = TextEditingController();
   bool _tempsManuel = false;
 
@@ -291,16 +289,12 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
     }
   }
 
-  /// Recalcule le temps passé — les horaires priment, sinon la journée
-  /// type OGEC, sauf au SAV. Une saisie manuelle coupe définitivement
-  /// le calcul (voir [_saisirTemps]).
+  /// Recalcule le temps passé — journée type OGEC, sauf au SAV où il
+  /// n'y a pas de journée standard. Une saisie manuelle coupe
+  /// définitivement le calcul (voir [_saisirTemps]).
   void _majTempsStandard() {
     if (_tempsManuel) return;
-    final mesure = BiFormat.dureeEntre(_heureDebut, _heureFin);
-    final valeur = mesure.isNotEmpty
-        ? mesure
-        : (_pole == Poles.depannage ? '' : BiFormat.tempsStandard(_dateIntervention));
-    _tempsPasseController.text = valeur;
+    _tempsPasseController.text = _pole == Poles.depannage ? '' : BiFormat.tempsStandard(_dateIntervention);
   }
 
   void _saisirTemps(String valeur) {
@@ -359,18 +353,22 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
     }
   }
 
-  /// Petits travaux : affaire obligatoire, puis équipement+nature
-  /// (remplacement/réparation) ou installation — impossible d'avancer
-  /// sans avoir fait ce choix jusqu'au bout.
+  /// Petits travaux : affaire obligatoire, puis type de travail choisi
+  /// jusqu'au bout — Remplacement/Réparation/Entretien exigent en plus
+  /// l'équipement du parc concerné ; Installation et Travaux divers
+  /// n'exigent rien de plus.
   bool get _peutAvancerEtape0 {
     if (_pole.isEmpty || _client == null) return false;
     if (_pole != Poles.petitsTravaux) return true;
     if (_affaire == null) return false;
-    if (_typeTravail == 'existant') {
-      return _equipement != null && _natureTravaux.isNotEmpty;
+    if (_avecEquipementPourTypeTravail) {
+      return _equipement != null;
     }
-    return _typeTravail == 'installation';
+    return _typeTravail == 'installation' || _typeTravail == 'divers';
   }
+
+  bool get _avecEquipementPourTypeTravail =>
+      _typeTravail == 'remplacement' || _typeTravail == 'reparation' || _typeTravail == 'entretien';
 
   bool get _peutTransmettre =>
       _pole.isNotEmpty &&
@@ -415,8 +413,6 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       dateFin: _dateFin,
       dateIntervention: _dateIntervention,
       tempsPasse: _tempsPasseController.text.trim(),
-      heureDebut: _heureDebut,
-      heureFin: _heureFin,
       techniciens: List.from(_techniciens),
       compteRendu: _compteRenduController.text.trim(),
       obsTech: _obsTechController.text.trim(),
@@ -540,6 +536,11 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
         title: Text('Bon d\'intervention — Étape ${_etape + 1}/$_totalEtapes'),
         backgroundColor: biAccent,
         foregroundColor: Colors.white,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          tooltip: 'Retour',
+          onPressed: () => Navigator.of(context).maybePop(),
+        ),
       ),
       body: Column(
         children: [
@@ -780,11 +781,30 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
           runSpacing: 8,
           children: [
             ChoiceChip(
-              label: const Text('Équipement existant'),
-              selected: _typeTravail == 'existant',
+              label: const Text('Remplacement'),
+              selected: _typeTravail == 'remplacement',
               onSelected: (_) => setState(() {
-                _typeTravail = 'existant';
-                _natureTravaux = '';
+                _typeTravail = 'remplacement';
+                _natureTravaux = NatureAffaire.remplacement;
+              }),
+              selectedColor: biAccent.withValues(alpha: 0.15),
+            ),
+            ChoiceChip(
+              label: const Text('Réparation'),
+              selected: _typeTravail == 'reparation',
+              onSelected: (_) => setState(() {
+                _typeTravail = 'reparation';
+                _natureTravaux = NatureAffaire.reparation;
+                _effacerRemplacement();
+              }),
+              selectedColor: biAccent.withValues(alpha: 0.15),
+            ),
+            ChoiceChip(
+              label: const Text('Entretien'),
+              selected: _typeTravail == 'entretien',
+              onSelected: (_) => setState(() {
+                _typeTravail = 'entretien';
+                _natureTravaux = NatureAffaire.entretien;
                 _effacerRemplacement();
               }),
               selectedColor: biAccent.withValues(alpha: 0.15),
@@ -800,10 +820,21 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
               }),
               selectedColor: biAccent.withValues(alpha: 0.15),
             ),
+            ChoiceChip(
+              label: const Text('Travaux divers'),
+              selected: _typeTravail == 'divers',
+              onSelected: (_) => setState(() {
+                _typeTravail = 'divers';
+                _natureTravaux = NatureAffaire.divers;
+                _equipement = null;
+                _effacerRemplacement();
+              }),
+              selectedColor: biAccent.withValues(alpha: 0.15),
+            ),
           ],
         ),
       ],
-      if (_typeTravail == 'existant') ...[
+      if (_avecEquipementPourTypeTravail) ...[
         _sectionTitle('Équipement'),
         if (_equipement != null)
           Card(
@@ -826,25 +857,7 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
             label: const Text('Choisir un équipement du parc GMAO'),
             style: OutlinedButton.styleFrom(foregroundColor: biAccent, side: BorderSide(color: biAccent)),
           ),
-        if (_equipement != null) ...[
-          _sectionTitle('Nature'),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [NatureAffaire.remplacement, NatureAffaire.reparation].map((n) {
-              return ChoiceChip(
-                label: Text(NatureAffaire.label(n)),
-                selected: _natureTravaux == n,
-                onSelected: (_) => setState(() {
-                  _natureTravaux = n;
-                  if (n != NatureAffaire.remplacement) _effacerRemplacement();
-                }),
-                selectedColor: biAccent.withValues(alpha: 0.15),
-              );
-            }).toList(),
-          ),
-        ],
-        if (_natureTravaux == NatureAffaire.remplacement) ...[
+        if (_equipement != null && _typeTravail == 'remplacement') ...[
           _sectionTitle('Nouveau matériel'),
           TextField(
             controller: _remplacementMarqueController,
@@ -936,16 +949,6 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
     if (d != null) setState(() => appliquer(d));
   }
 
-  Future<void> _choisirHeure(void Function(String) appliquer) async {
-    final t = await showTimePicker(context: context, initialTime: TimeOfDay.now());
-    if (t != null) {
-      setState(() {
-        appliquer('${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}');
-        _majTempsStandard();
-      });
-    }
-  }
-
   String _formaterDate(DateTime d) =>
       '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
 
@@ -962,18 +965,8 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
     );
   }
 
-  Widget _champHeure(String label, String valeur, void Function(String) onChoisi) {
-    return InkWell(
-      onTap: () => _choisirHeure(onChoisi),
-      child: InputDecorator(
-        decoration: InputDecoration(labelText: label, border: const OutlineInputBorder(), isDense: true),
-        child: Text(valeur.isEmpty ? '—' : valeur),
-      ),
-    );
-  }
 
   Widget _etapeDatesHeures() {
-    final avecHeures = Poles.avecHeures(_pole);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -999,20 +992,6 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
               _majTempsStandard();
             }),
           ),
-          if (avecHeures) ...[
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: _champHeure('Heure d\'arrivée', _heureDebut, (v) => _heureDebut = v),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _champHeure('Heure de départ', _heureFin, (v) => _heureFin = v),
-                ),
-              ],
-            ),
-          ],
           const SizedBox(height: 10),
           TextField(
             controller: _tempsPasseController,
@@ -1074,12 +1053,6 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
         _sectionTitle('Observation technicien'),
         TextField(
           controller: _obsTechController,
-          maxLines: 3,
-          decoration: const InputDecoration(border: OutlineInputBorder()),
-        ),
-        _sectionTitle('Observation client'),
-        TextField(
-          controller: _obsClientController,
           maxLines: 3,
           decoration: const InputDecoration(border: OutlineInputBorder()),
         ),
@@ -1294,6 +1267,13 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
         ),
         const SizedBox(height: 16),
         _padSignature('Signature technicien', _sigTechController),
+        const SizedBox(height: 16),
+        _sectionTitle('Observation client'),
+        TextField(
+          controller: _obsClientController,
+          maxLines: 3,
+          decoration: const InputDecoration(border: OutlineInputBorder()),
+        ),
         const SizedBox(height: 16),
         _padSignature('Signature client', _sigClientController),
         const SizedBox(height: 16),
