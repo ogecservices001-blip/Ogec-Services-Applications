@@ -5,7 +5,6 @@ import 'package:http/http.dart' as http;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
-import '../../affaires/data/affaire_constants.dart';
 import '../data/bi_constants.dart';
 import '../data/bi_format.dart';
 import '../data/bi_model.dart';
@@ -53,9 +52,7 @@ class BiPdfGenerator {
           _section('OGEC', bold),
           _kv('Technicien(s)', b.techniciens.join(', ').isEmpty ? '—' : b.techniciens.join(', '), styleBold, style),
           if (b.affaireNumeroDevis.isNotEmpty) _kv('Affaire', b.affaireNumeroDevis, styleBold, style),
-          if (b.natureTravaux.isNotEmpty)
-            _kv('Nature', NatureAffaire.label(b.natureTravaux), styleBold, style),
-          if (b.equipementNom.isNotEmpty) _kv('Équipement', b.equipementNom, styleBold, style),
+          if (b.equipementNom.isNotEmpty) _kv('Équipement', BiFormat.equipementLabel(b), styleBold, style),
           for (final ligne in _lignesDates(b)) _kv(ligne.key, ligne.value, styleBold, style),
           if (b.numeroDevis.isNotEmpty) _kv('N° devis lié', b.numeroDevis, styleBold, style),
           pw.SizedBox(height: 4),
@@ -76,7 +73,16 @@ class BiPdfGenerator {
           pw.Row(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              pw.Expanded(child: _blocSignature('Le technicien — ${b.techniciens.join(', ')}', b.sigTech, styleBold)),
+              pw.Expanded(
+                child: _blocSignature(
+                  // Seul le technicien connecté signe — pas la liste de
+                  // tous ceux intervenus (voir "Technicien(s)" plus haut).
+                  // Repli sur cette liste pour les bons antérieurs à ce champ.
+                  'Le technicien — ${b.technicienSignataire.isNotEmpty ? b.technicienSignataire : b.techniciens.join(', ')}',
+                  b.sigTech,
+                  styleBold,
+                ),
+              ),
               pw.SizedBox(width: 16),
               pw.Expanded(
                 child: _blocSignature(
@@ -217,14 +223,14 @@ class BiPdfGenerator {
   );
 
   static List<MapEntry<String, String>> _lignesDates(BonIntervention b) {
-    if (b.pole == Poles.maintenance) {
+    if (Poles.avecPeriode(b.pole)) {
       if (b.dateDebut.isNotEmpty && b.dateFin.isNotEmpty && b.dateDebut != b.dateFin) {
         return [MapEntry("Période d'intervention", 'du ${b.dateDebut} au ${b.dateFin}')];
       }
       return [MapEntry("Date d'intervention", b.dateDebut.isEmpty ? '—' : b.dateDebut)];
     }
     final lignes = <MapEntry<String, String>>[
-      MapEntry(b.pole == Poles.depannage ? "Date d'intervention" : 'Date', b.dateIntervention.isEmpty ? '—' : b.dateIntervention),
+      MapEntry("Date d'intervention", b.dateIntervention.isEmpty ? '—' : b.dateIntervention),
     ];
     if (b.heureDebut.isNotEmpty || b.heureFin.isNotEmpty) {
       lignes.add(MapEntry('Horaires', [b.heureDebut, b.heureFin].where((s) => s.isNotEmpty).join(' → ')));

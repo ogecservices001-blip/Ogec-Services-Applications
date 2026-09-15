@@ -6,7 +6,6 @@ import 'package:printing/printing.dart';
 import 'package:signature/signature.dart';
 import '../../../core/services/user_service.dart';
 import '../../affaires/client_affaires_list_screen.dart';
-import '../../affaires/data/affaire_constants.dart';
 import '../../affaires/data/affaire_model.dart';
 import '../../affaires/travaux_clients_screen.dart';
 import '../../annuaire/clients/client_model.dart';
@@ -40,7 +39,7 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   final BiPhotoService _photoService = BiPhotoService();
 
   int _etape = 0;
-  static const _totalEtapes = 6;
+  static const _totalEtapes = 5;
   bool _enregistrementEnCours = false;
   bool _apercuEnCours = false;
 
@@ -54,10 +53,9 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   ClientModel? _client;
   EquipementModel? _equipement;
 
-  // Petits travaux uniquement.
+  // Devis (Affaire) et équipement — pertinents selon le pôle choisi,
+  // voir Poles.avecAffaire/avecEquipementObligatoire.
   AffaireModel? _affaire;
-  String _typeTravail = ''; // 'remplacement' | 'installation' | 'divers'
-  String _natureTravaux = '';
   final _remplacementMarqueController = TextEditingController();
   final _remplacementRefUIntController = TextEditingController();
   final _remplacementNumSerieUIntController = TextEditingController();
@@ -67,28 +65,29 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
 
   final _emailController = TextEditingController();
 
-  // ---------- Étape 1 : Dates ----------
+  // ---------- Étape 1 : Techniciens + Dates ----------
+  final List<String> _techniciens = [];
+  // Celui qui remplit le bon et signe réellement — distinct de la liste
+  // ci-dessus (tous ceux intervenus sur place).
+  String _technicienConnecte = '';
   String _dateDebut = BiFormat.today();
   String _dateFin = BiFormat.today();
   String _dateIntervention = BiFormat.today();
   final _tempsPasseController = TextEditingController();
   bool _tempsManuel = false;
 
-  // ---------- Étape 2 : Techniciens ----------
-  final List<String> _techniciens = [];
-
-  // ---------- Étape 3 : Compte rendu ----------
+  // ---------- Étape 2 : Compte rendu ----------
   final _compteRenduController = TextEditingController();
   final _obsTechController = TextEditingController();
   final _obsClientController = TextEditingController();
 
-  // ---------- Étape 4 : Prestations + photos ----------
+  // ---------- Étape 3 : Prestations + photos ----------
   final List<Presta> _prestas = [Presta()];
   final List<PhotoBI> _photos = [];
   final Map<int, Uint8List> _apercusPhotos = {};
   final Set<int> _photosEnCours = {};
 
-  // ---------- Étape 5 : Signatures ----------
+  // ---------- Étape 4 : Signatures ----------
   final _signataireController = TextEditingController();
   final _signataireTelPortableController = TextEditingController();
   final _signataireTelFixeController = TextEditingController();
@@ -112,7 +111,11 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   Future<void> _preremplirTechnicien() async {
     final nom = await _userService.getCurrentUserName();
     if (nom.isNotEmpty && mounted) {
-      setState(() => _techniciens.add(nom));
+      setState(() {
+        _techniciens.add(nom);
+        _technicienConnecte = nom;
+        _majTempsStandard();
+      });
     }
   }
 
@@ -142,14 +145,9 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
     if (_pole == pole) return;
     setState(() {
       _pole = pole;
-      if (!Poles.avecEquipement(pole)) _equipement = null;
-      if (pole != Poles.petitsTravaux) {
-        _affaire = null;
-        _typeTravail = '';
-        _natureTravaux = '';
-        _equipement = null;
-        _effacerRemplacement();
-      }
+      _affaire = null;
+      _equipement = null;
+      _effacerRemplacement();
       // Pas encore de numéro réservé cette session : seul le segment
       // pôle du numéro déjà affiché change (voir _assurerNumero — le
       // vrai chrono n'est tiré qu'au premier enregistrement, pour ne
@@ -215,10 +213,10 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   }
 
   Future<void> _choisirClient() async {
-    // Petits travaux : le client se choisit en passant directement par le
-    // Répertoire Travaux Clients — c'est sa raison d'être — plutôt qu'un
-    // picker dédié ; il renvoie client + affaire choisis ensemble.
-    if (_pole == Poles.petitsTravaux) {
+    // Pôles avec devis : le client se choisit en passant directement par
+    // le Répertoire Travaux Clients — c'est sa raison d'être — plutôt
+    // qu'un picker dédié ; il renvoie client + affaire choisis ensemble.
+    if (Poles.avecAffaire(_pole)) {
       final resultat = await Navigator.push<(ClientModel, AffaireModel)>(
         context,
         MaterialPageRoute(builder: (context) => const TravauxClientsScreen(modeSelection: true)),
@@ -229,8 +227,6 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
           _client = site;
           _affaire = affaire;
           _equipement = null;
-          _typeTravail = '';
-          _natureTravaux = '';
           _effacerRemplacement();
           _preremplirDepuisSite(site);
         });
@@ -247,8 +243,6 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
         _client = site;
         _equipement = null;
         _affaire = null;
-        _typeTravail = '';
-        _natureTravaux = '';
         _effacerRemplacement();
         _preremplirDepuisSite(site);
       });
@@ -285,20 +279,48 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
         _techniciens
           ..clear()
           ..addAll(resultat);
+        _majTempsStandard();
       });
     }
   }
 
-  /// Recalcule le temps passé — journée type OGEC, sauf au SAV où il
-  /// n'y a pas de journée standard. Une saisie manuelle coupe
-  /// définitivement le calcul (voir [_saisirTemps]).
+  /// Recalcule le temps passé — journée type OGEC multipliée par le
+  /// nombre de techniciens intervenus (main d'œuvre facturée, pas
+  /// seulement le temps de présence sur site), sauf pour les pôles à
+  /// temps libre (voir Poles.avecTempsLibre) où il n'y a pas de journée
+  /// standard fiable. Une saisie manuelle coupe définitivement le
+  /// calcul (voir [_saisirTemps]).
   void _majTempsStandard() {
     if (_tempsManuel) return;
-    _tempsPasseController.text = _pole == Poles.depannage ? '' : BiFormat.tempsStandard(_dateIntervention);
+    final base = Poles.avecTempsLibre(_pole) ? '' : BiFormat.tempsStandard(_dateIntervention);
+    _tempsPasseController.text = base.isEmpty ? '' : BiFormat.multiplierDuree(base, _techniciens.length);
   }
 
   void _saisirTemps(String valeur) {
     _tempsManuel = true;
+    // Rafraîchit l'aperçu du total facturé (pôles à temps libre) sans
+    // reformater le champ pendant la saisie — voir [_apercuTempsDepannageWidget].
+    if (Poles.avecTempsLibre(_pole)) setState(() {});
+  }
+
+  /// Pôles à temps libre (Réparation) : le champ Temps passé reste la
+  /// durée telle que tapée par le technicien (jamais réécrite en
+  /// direct, l'ordre dans lequel il remplit Techniciens/Temps ne doit
+  /// rien casser) — seul cet aperçu, et la valeur réellement
+  /// enregistrée dans [_construireBI], tiennent compte de l'effectif.
+  Widget _apercuTempsDepannageWidget() {
+    if (!Poles.avecTempsLibre(_pole) || _techniciens.length <= 1) return const SizedBox.shrink();
+    final saisie = _tempsPasseController.text.trim();
+    if (saisie.isEmpty) return const SizedBox.shrink();
+    final total = BiFormat.multiplierDuree(saisie, _techniciens.length);
+    if (total == saisie) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Text(
+        '→ $total au total pour ${_techniciens.length} techniciens',
+        style: TextStyle(fontSize: 12, color: biAccent, fontWeight: FontWeight.w600),
+      ),
+    );
   }
 
   Future<void> _choisirPhoto() async {
@@ -353,22 +375,15 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
     }
   }
 
-  /// Petits travaux : affaire obligatoire, puis type de travail choisi
-  /// jusqu'au bout — Remplacement/Réparation/Entretien exigent en plus
-  /// l'équipement du parc concerné ; Installation et Travaux divers
-  /// n'exigent rien de plus.
+  /// Client obligatoire, puis devis (Affaire) et équipement du parc
+  /// GMAO selon ce qu'exige le pôle choisi (voir Poles.avecAffaire/
+  /// avecEquipementObligatoire).
   bool get _peutAvancerEtape0 {
     if (_pole.isEmpty || _client == null) return false;
-    if (_pole != Poles.petitsTravaux) return true;
-    if (_affaire == null) return false;
-    if (_avecEquipementPourTypeTravail) {
-      return _equipement != null;
-    }
-    return _typeTravail == 'installation' || _typeTravail == 'divers';
+    if (Poles.avecAffaire(_pole) && _affaire == null) return false;
+    if (Poles.avecEquipementObligatoire(_pole) && _equipement == null) return false;
+    return true;
   }
-
-  bool get _avecEquipementPourTypeTravail =>
-      _typeTravail == 'remplacement' || _typeTravail == 'reparation' || _typeTravail == 'entretien';
 
   bool get _peutTransmettre =>
       _pole.isNotEmpty &&
@@ -400,9 +415,10 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       horsContrat: c?.horsContrat ?? false,
       equipementId: _equipement?.id ?? '',
       equipementNom: _equipement?.nom ?? '',
+      equipementGroupe: _equipement?.groupe ?? '',
+      equipementLocalisation: _equipement?.localisation ?? '',
       affaireId: _affaire?.id ?? '',
       affaireNumeroDevis: _affaire?.numeroDevis ?? '',
-      natureTravaux: _natureTravaux,
       remplacementMarque: _remplacementMarqueController.text.trim(),
       remplacementReferenceUInt: _remplacementRefUIntController.text.trim(),
       remplacementNumSerieUInt: _remplacementNumSerieUIntController.text.trim(),
@@ -412,8 +428,17 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       dateDebut: _dateDebut,
       dateFin: _dateFin,
       dateIntervention: _dateIntervention,
-      tempsPasse: _tempsPasseController.text.trim(),
+      // Pôles à temps libre (Poles.avecTempsLibre) : durée saisie
+      // librement, jamais recalculée en direct (voir
+      // _apercuTempsDepannageWidget) — la multiplication par l'effectif
+      // n'est appliquée qu'ici, une seule fois, à l'enregistrement. Les
+      // autres pôles multiplient déjà en direct (journée type
+      // recalculée à chaque changement, voir _majTempsStandard).
+      tempsPasse: Poles.avecTempsLibre(_pole)
+          ? BiFormat.multiplierDuree(_tempsPasseController.text.trim(), _techniciens.length)
+          : _tempsPasseController.text.trim(),
       techniciens: List.from(_techniciens),
+      technicienSignataire: _technicienConnecte,
       compteRendu: _compteRenduController.text.trim(),
       obsTech: _obsTechController.text.trim(),
       obsClient: _obsClientController.text.trim(),
@@ -539,7 +564,15 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
           tooltip: 'Retour',
-          onPressed: () => Navigator.of(context).maybePop(),
+          // Revient à l'étape précédente sans perdre sa saisie ; ne
+          // quitte l'assistant que depuis la toute première étape.
+          onPressed: () {
+            if (_etape > 0) {
+              setState(() => _etape--);
+            } else {
+              Navigator.of(context).maybePop();
+            }
+          },
         ),
       ),
       body: Column(
@@ -567,12 +600,10 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       case 0:
         return _etapePoleClient();
       case 1:
-        return _etapeDatesHeures();
+        return _etapeTechniciensDates();
       case 2:
-        return _etapeTechniciens();
-      case 3:
         return _etapeCompteRendu();
-      case 4:
+      case 3:
         return _etapePrestationsPhotos();
       default:
         return _etapeSignatures();
@@ -705,8 +736,6 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
                       _client = null;
                       _equipement = null;
                       _affaire = null;
-                      _typeTravail = '';
-                      _natureTravaux = '';
                       _effacerRemplacement();
                     }),
                   ),
@@ -721,120 +750,38 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
             label: const Text('Choisir un client'),
             style: OutlinedButton.styleFrom(foregroundColor: biAccent, side: BorderSide(color: biAccent)),
           ),
-        if (_client != null && Poles.avecEquipement(_pole)) ...[
-          _sectionTitle('Équipement (optionnel)'),
-          if (_equipement != null)
-            Card(
-              color: biAccent.withValues(alpha: 0.08),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              child: ListTile(
-                leading: const Icon(Icons.precision_manufacturing_outlined, color: biAccent),
-                title: Text(_equipement!.nom),
-                subtitle: Text(_equipement!.localisation.isEmpty ? '—' : _equipement!.localisation),
-                trailing: IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => setState(() => _equipement = null),
-                ),
-              ),
-            )
-          else
-            OutlinedButton.icon(
-              onPressed: _choisirEquipement,
-              icon: const Icon(Icons.precision_manufacturing_outlined),
-              label: const Text('Choisir un équipement du parc GMAO'),
-              style: OutlinedButton.styleFrom(foregroundColor: biAccent, side: BorderSide(color: biAccent)),
-            ),
-        ],
-        if (_client != null && _pole == Poles.petitsTravaux) ..._blocPetitsTravaux(),
+        if (_client != null) ..._blocAffaireEtEquipement(),
       ],
     );
   }
 
-  List<Widget> _blocPetitsTravaux() {
+  List<Widget> _blocAffaireEtEquipement() {
     return [
-      _sectionTitle('Affaire'),
-      if (_affaire != null)
-        Card(
-          color: biAccent.withValues(alpha: 0.08),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          child: ListTile(
-            leading: const Icon(Icons.assignment_outlined, color: biAccent),
-            title: Text(_affaire!.numeroDevis.isEmpty ? '(sans n° de devis)' : _affaire!.numeroDevis),
-            subtitle: Text(_affaire!.designationPrestations, maxLines: 2, overflow: TextOverflow.ellipsis),
-            trailing: IconButton(
-              icon: const Icon(Icons.close),
-              onPressed: () => setState(() => _affaire = null),
+      if (Poles.avecAffaire(_pole)) ...[
+        _sectionTitle('Affaire'),
+        if (_affaire != null)
+          Card(
+            color: biAccent.withValues(alpha: 0.08),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            child: ListTile(
+              leading: const Icon(Icons.assignment_outlined, color: biAccent),
+              title: Text(_affaire!.numeroDevis.isEmpty ? '(sans n° de devis)' : _affaire!.numeroDevis),
+              subtitle: Text(_affaire!.designationPrestations, maxLines: 2, overflow: TextOverflow.ellipsis),
+              trailing: IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => setState(() => _affaire = null),
+              ),
             ),
+          )
+        else
+          OutlinedButton.icon(
+            onPressed: _choisirAffaire,
+            icon: const Icon(Icons.assignment_outlined),
+            label: const Text('Choisir l\'affaire'),
+            style: OutlinedButton.styleFrom(foregroundColor: biAccent, side: BorderSide(color: biAccent)),
           ),
-        )
-      else
-        OutlinedButton.icon(
-          onPressed: _choisirAffaire,
-          icon: const Icon(Icons.assignment_outlined),
-          label: const Text('Choisir l\'affaire'),
-          style: OutlinedButton.styleFrom(foregroundColor: biAccent, side: BorderSide(color: biAccent)),
-        ),
-      if (_affaire != null) ...[
-        _sectionTitle('Type de travail'),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            ChoiceChip(
-              label: const Text('Remplacement'),
-              selected: _typeTravail == 'remplacement',
-              onSelected: (_) => setState(() {
-                _typeTravail = 'remplacement';
-                _natureTravaux = NatureAffaire.remplacement;
-              }),
-              selectedColor: biAccent.withValues(alpha: 0.15),
-            ),
-            ChoiceChip(
-              label: const Text('Réparation'),
-              selected: _typeTravail == 'reparation',
-              onSelected: (_) => setState(() {
-                _typeTravail = 'reparation';
-                _natureTravaux = NatureAffaire.reparation;
-                _effacerRemplacement();
-              }),
-              selectedColor: biAccent.withValues(alpha: 0.15),
-            ),
-            ChoiceChip(
-              label: const Text('Entretien'),
-              selected: _typeTravail == 'entretien',
-              onSelected: (_) => setState(() {
-                _typeTravail = 'entretien';
-                _natureTravaux = NatureAffaire.entretien;
-                _effacerRemplacement();
-              }),
-              selectedColor: biAccent.withValues(alpha: 0.15),
-            ),
-            ChoiceChip(
-              label: const Text('Installation nouveau matériel'),
-              selected: _typeTravail == 'installation',
-              onSelected: (_) => setState(() {
-                _typeTravail = 'installation';
-                _natureTravaux = NatureAffaire.installation;
-                _equipement = null;
-                _effacerRemplacement();
-              }),
-              selectedColor: biAccent.withValues(alpha: 0.15),
-            ),
-            ChoiceChip(
-              label: const Text('Travaux divers'),
-              selected: _typeTravail == 'divers',
-              onSelected: (_) => setState(() {
-                _typeTravail = 'divers';
-                _natureTravaux = NatureAffaire.divers;
-                _equipement = null;
-                _effacerRemplacement();
-              }),
-              selectedColor: biAccent.withValues(alpha: 0.15),
-            ),
-          ],
-        ),
       ],
-      if (_avecEquipementPourTypeTravail) ...[
+      if (Poles.avecEquipementObligatoire(_pole)) ...[
         _sectionTitle('Équipement'),
         if (_equipement != null)
           Card(
@@ -857,7 +804,7 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
             label: const Text('Choisir un équipement du parc GMAO'),
             style: OutlinedButton.styleFrom(foregroundColor: biAccent, side: BorderSide(color: biAccent)),
           ),
-        if (_equipement != null && _typeTravail == 'remplacement') ...[
+        if (_equipement != null && _pole == Poles.remplacementIdentique) ...[
           _sectionTitle('Nouveau matériel'),
           TextField(
             controller: _remplacementMarqueController,
@@ -935,6 +882,30 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
           ),
         ],
       ],
+      if (Poles.avecEquipementOptionnel(_pole)) ...[
+        _sectionTitle('Équipement (optionnel)'),
+        if (_equipement != null)
+          Card(
+            color: biAccent.withValues(alpha: 0.08),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            child: ListTile(
+              leading: const Icon(Icons.precision_manufacturing_outlined, color: biAccent),
+              title: Text(_equipement!.nom),
+              subtitle: Text(_equipement!.localisation.isEmpty ? '—' : _equipement!.localisation),
+              trailing: IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => setState(() => _equipement = null),
+              ),
+            ),
+          )
+        else
+          OutlinedButton.icon(
+            onPressed: _choisirEquipement,
+            icon: const Icon(Icons.precision_manufacturing_outlined),
+            label: const Text('Choisir un équipement du parc GMAO'),
+            style: OutlinedButton.styleFrom(foregroundColor: biAccent, side: BorderSide(color: biAccent)),
+          ),
+      ],
     ];
   }
 
@@ -966,12 +937,40 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   }
 
 
-  Widget _etapeDatesHeures() {
+  // Techniciens d'abord : le temps passé (juste en dessous) dépend de
+  // l'effectif pour son calcul, autant le connaître avant.
+  Widget _etapeTechniciensDates() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        _sectionTitle('Techniciens intervenus'),
+        if (_techniciens.isNotEmpty)
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: _techniciens
+                .map(
+                  (t) => Chip(
+                    label: Text(t),
+                    backgroundColor: biAccent.withValues(alpha: 0.12),
+                    onDeleted: () => setState(() {
+                      _techniciens.remove(t);
+                      _majTempsStandard();
+                    }),
+                  ),
+                )
+                .toList(),
+          ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: _choisirTechniciens,
+          icon: const Icon(Icons.group_add_outlined),
+          label: const Text('Ajouter un intervenant'),
+          style: OutlinedButton.styleFrom(foregroundColor: biAccent, side: BorderSide(color: biAccent)),
+        ),
+        const SizedBox(height: 20),
         _sectionTitle('Dates'),
-        if (_pole == Poles.maintenance) ...[
+        if (Poles.avecPeriode(_pole)) ...[
           Row(
             children: [
               Expanded(
@@ -997,49 +996,18 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
             controller: _tempsPasseController,
             decoration: const InputDecoration(
               labelText: 'Temps passé',
-              helperText: 'Calculé automatiquement — modifiable',
               border: OutlineInputBorder(),
               isDense: true,
             ),
             onChanged: _saisirTemps,
           ),
+          _apercuTempsDepannageWidget(),
         ],
       ],
     );
   }
 
   // ---------- Étape 2 ----------
-  Widget _etapeTechniciens() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionTitle('Techniciens intervenus'),
-        if (_techniciens.isNotEmpty)
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: _techniciens
-                .map(
-                  (t) => Chip(
-                    label: Text(t),
-                    backgroundColor: biAccent.withValues(alpha: 0.12),
-                    onDeleted: () => setState(() => _techniciens.remove(t)),
-                  ),
-                )
-                .toList(),
-          ),
-        const SizedBox(height: 8),
-        OutlinedButton.icon(
-          onPressed: _choisirTechniciens,
-          icon: const Icon(Icons.group_add_outlined),
-          label: const Text('Ajouter un intervenant'),
-          style: OutlinedButton.styleFrom(foregroundColor: biAccent, side: BorderSide(color: biAccent)),
-        ),
-      ],
-    );
-  }
-
-  // ---------- Étape 3 ----------
   Widget _etapeCompteRendu() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1060,7 +1028,7 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
     );
   }
 
-  // ---------- Étape 4 ----------
+  // ---------- Étape 3 ----------
   Widget _etapePrestationsPhotos() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1194,7 +1162,7 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
     );
   }
 
-  // ---------- Étape 5 ----------
+  // ---------- Étape 4 ----------
   Widget _padSignature(String titre, SignatureController controller) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

@@ -3,7 +3,6 @@ import 'package:printing/printing.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/auth/admin_google_session.dart';
 import '../../../core/services/user_service.dart';
-import '../../affaires/data/affaire_constants.dart';
 import '../../gmao/equipements/equipement_model.dart';
 import '../../gmao/gmao_database_service.dart';
 import '../../gmao/types_equipement/type_equipement_model.dart';
@@ -13,6 +12,7 @@ import '../data/bi_model.dart';
 import '../data/bi_service.dart';
 import '../pdf/bi_drive_service.dart';
 import '../pdf/bi_pdf_generator.dart';
+import '../wizard/bi_technicien_picker_screen.dart';
 import '../wizard/bi_wizard_screen.dart' show biAccent;
 import '../widgets/statut_badge.dart';
 
@@ -99,7 +99,6 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
   late TextEditingController _obsTechController;
   late TextEditingController _noteInterneController;
   late TextEditingController _emailController;
-  late TextEditingController _numeroDevisController;
   late List<Presta> _prestas;
 
   void _initierCorrection(BonIntervention b) {
@@ -117,7 +116,6 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
     _obsTechController = TextEditingController(text: b.obsTech);
     _noteInterneController = TextEditingController(text: b.noteInterne);
     _emailController = TextEditingController(text: b.email);
-    _numeroDevisController = TextEditingController(text: b.numeroDevis);
     _prestas = b.prestas.isEmpty
         ? [Presta()]
         : b.prestas.map((p) => Presta(designation: p.designation, quantite: p.quantite, pu: p.pu)).toList();
@@ -130,46 +128,75 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
       _obsTechController.dispose();
       _noteInterneController.dispose();
       _emailController.dispose();
-      _numeroDevisController.dispose();
     }
     _installationNomController.dispose();
     _installationLocalisationController.dispose();
     super.dispose();
   }
 
+  Future<void> _choisirTechniciens() async {
+    final resultat = await Navigator.push<List<String>>(
+      context,
+      MaterialPageRoute(builder: (context) => BiTechnicienPickerScreen(selectionInitiale: _techniciens)),
+    );
+    if (resultat != null && mounted) {
+      final ancienEffectif = _techniciens.length;
+      setState(() {
+        _techniciens
+          ..clear()
+          ..addAll(resultat);
+        if (Poles.avecTempsLibre(_pole)) {
+          _tempsPasse = BiFormat.ajusterDureeEffectif(_tempsPasse, ancienEffectif, _techniciens.length);
+        }
+      });
+    }
+  }
+
+  Future<void> _ajouterTechnicienConnecte() async {
+    final nom = await _userService.getCurrentUserName();
+    if (nom.isEmpty || !mounted || _techniciens.contains(nom)) return;
+    final ancienEffectif = _techniciens.length;
+    setState(() {
+      _techniciens.add(nom);
+      if (Poles.avecTempsLibre(_pole)) {
+        _tempsPasse = BiFormat.ajusterDureeEffectif(_tempsPasse, ancienEffectif, _techniciens.length);
+      }
+    });
+  }
+
   bool get _emailValide => RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(_emailController.text.trim());
 
   bool _peutValider(BonIntervention original) {
     if (!_emailValide) return false;
-    if (original.pole == Poles.petitsTravaux && original.natureTravaux == NatureAffaire.installation) {
+    if (original.pole == Poles.installationNeuve) {
       return _installationNomController.text.trim().isNotEmpty && _installationTypeEquipementId != null;
     }
     return true;
   }
 
-  /// Automatisation GMAO déclenchée par la validation bureau d'un bon
-  /// Petits travaux, selon la nature du travail (voir affaires/BI Étape
-  /// C) — ne doit jamais bloquer la validation du bon elle-même si elle
-  /// échoue, appelée après le `saveBI` réussi.
+  /// Automatisation GMAO déclenchée par la validation bureau d'un bon,
+  /// selon le pôle (nature du travail — voir affaires/BI Étape C) — ne
+  /// doit jamais bloquer la validation du bon elle-même si elle échoue,
+  /// appelée après le `saveBI` réussi.
   Future<void> _executerAutomatisationGmao(BonIntervention bi) async {
-    if (bi.pole != Poles.petitsTravaux) return;
     final date = BiFormat.now();
-    switch (bi.natureTravaux) {
-      case NatureAffaire.reparation:
+    switch (bi.pole) {
+      case Poles.reparationEquipement:
         if (bi.equipementId.isEmpty) return;
         await _gmaoDb.ajouterRemarqueEquipement(
           bi.equipementId,
           'Réparé le $date via ${bi.numero} : ${bi.compteRendu}',
         );
         break;
-      case NatureAffaire.entretien:
+      case Poles.entretienSousContrat:
+      case Poles.entretienHorsContrat:
         if (bi.equipementId.isEmpty) return;
         await _gmaoDb.ajouterRemarqueEquipement(
           bi.equipementId,
           'Entretien effectué le $date via ${bi.numero} : ${bi.compteRendu}',
         );
         break;
-      case NatureAffaire.remplacement:
+      case Poles.remplacementIdentique:
         if (bi.equipementId.isEmpty) return;
         await _gmaoDb.ajouterRemarqueEquipement(
           bi.equipementId,
@@ -184,7 +211,7 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
         if (bi.remplacementDateMES.isNotEmpty) data['champsEnTete.dateMES'] = bi.remplacementDateMES;
         if (data.isNotEmpty) await _gmaoDb.updateEquipement(bi.equipementId, data);
         break;
-      case NatureAffaire.installation:
+      case Poles.installationNeuve:
         if (_installationTypeEquipementId == null || _installationNomController.text.trim().isEmpty) return;
         await _gmaoDb.addEquipement(
           EquipementModel(
@@ -226,7 +253,6 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
       final prestasFiltrees = _prestas.where((p) => p.designation.trim().isNotEmpty).toList();
       diff('Prestations & fournitures', BiFormat.prestaSummary(original.prestas), BiFormat.prestaSummary(prestasFiltrees));
       diff('Email client', original.email, _emailController.text.trim());
-      diff('N° devis lié', original.numeroDevis, _numeroDevisController.text.trim());
       diff('Remarque interne', original.noteInterne, _noteInterneController.text.trim());
 
       final corrige = BonIntervention(
@@ -244,9 +270,10 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
         horsContrat: original.horsContrat,
         equipementId: original.equipementId,
         equipementNom: original.equipementNom,
+        equipementGroupe: original.equipementGroupe,
+        equipementLocalisation: original.equipementLocalisation,
         affaireId: original.affaireId,
         affaireNumeroDevis: original.affaireNumeroDevis,
-        natureTravaux: original.natureTravaux,
         remplacementMarque: original.remplacementMarque,
         remplacementReferenceUInt: original.remplacementReferenceUInt,
         remplacementNumSerieUInt: original.remplacementNumSerieUInt,
@@ -260,6 +287,7 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
         heureDebut: _heureDebut,
         heureFin: _heureFin,
         techniciens: _techniciens,
+        technicienSignataire: original.technicienSignataire,
         compteRendu: _compteRenduController.text.trim(),
         obsTech: _obsTechController.text.trim(),
         obsClient: original.obsClient,
@@ -271,7 +299,7 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
         signataireTelPortable: original.signataireTelPortable,
         signataireTelFixe: original.signataireTelFixe,
         dateSignature: original.dateSignature,
-        numeroDevis: _numeroDevisController.text.trim(),
+        numeroDevis: original.numeroDevis,
         noteInterne: _noteInterneController.text.trim(),
         history: original.history,
         createdBy: original.createdBy,
@@ -420,10 +448,8 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
         _infoLigne('Pôle', '${b.pole} · ${Poles.label(b.pole)}'),
         _infoLigne('Technicien(s)', b.techniciens.join(', ')),
         if (b.affaireNumeroDevis.isNotEmpty) _infoLigne('Affaire', b.affaireNumeroDevis),
-        if (b.natureTravaux.isNotEmpty) _infoLigne('Nature', NatureAffaire.label(b.natureTravaux)),
-        if (b.equipementNom.isNotEmpty) _infoLigne('Équipement', b.equipementNom),
+        if (b.equipementNom.isNotEmpty) _infoLigne('Équipement', BiFormat.equipementLabel(b)),
         ..._lignesDates(b).map((e) => _infoLigne(e.key, e.value)),
-        if (b.numeroDevis.isNotEmpty) _infoLigne('N° devis lié', b.numeroDevis),
       ]),
       _sectionCard('Compte rendu', [Text(b.compteRendu.isEmpty ? '—' : b.compteRendu)]),
       _sectionCard('Prestations & fournitures', [
@@ -452,12 +478,31 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
     final avecHeuresHeritees = original.heureDebut.isNotEmpty || original.heureFin.isNotEmpty;
     final mesure = BiFormat.dureeEntre(_heureDebut, _heureFin);
     return [
+      if (original.equipementNom.isNotEmpty)
+        _sectionCard('Équipement', [
+          _infoLigne('Nom', original.equipementNom),
+          if (original.equipementGroupe.isNotEmpty) _infoLigne('Groupe', original.equipementGroupe),
+          if (original.equipementLocalisation.isNotEmpty) _infoLigne('Localisation', original.equipementLocalisation),
+          if (original.pole == Poles.remplacementIdentique) ...[
+            if (original.remplacementMarque.isNotEmpty) _infoLigne('Marque', original.remplacementMarque),
+            if (original.remplacementReferenceUInt.isNotEmpty)
+              _infoLigne('Réf. unité intérieure', original.remplacementReferenceUInt),
+            if (original.remplacementNumSerieUInt.isNotEmpty)
+              _infoLigne('N° série unité intérieure', original.remplacementNumSerieUInt),
+            if (original.remplacementReferenceUExt.isNotEmpty)
+              _infoLigne('Réf. unité extérieure', original.remplacementReferenceUExt),
+            if (original.remplacementNumSerieUExt.isNotEmpty)
+              _infoLigne('N° série unité extérieure', original.remplacementNumSerieUExt),
+            if (original.remplacementDateMES.isNotEmpty)
+              _infoLigne('Date de mise en service', original.remplacementDateMES),
+          ],
+        ]),
       _sectionCard('Vérification & correction (bureau)', [
         _deroulantPole(),
         const SizedBox(height: 10),
         _champTechniciens(),
         const SizedBox(height: 10),
-        if (_pole == Poles.maintenance)
+        if (Poles.avecPeriode(_pole))
           Row(
             children: [
               Expanded(child: _champTexte('Date de début', _dateDebut, (v) => _dateDebut = v)),
@@ -470,7 +515,7 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
             children: [
               Expanded(
                 child: _champTexte(
-                  _pole == Poles.depannage ? 'Date d\'intervention' : 'Date',
+                  'Date d\'intervention',
                   _dateIntervention,
                   (v) => _dateIntervention = v,
                 ),
@@ -510,11 +555,20 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
           maxLines: 2,
           decoration: const InputDecoration(labelText: 'Observations technicien', border: OutlineInputBorder(), isDense: true),
         ),
-        const SizedBox(height: 10),
-        TextFormField(
-          controller: _numeroDevisController,
-          decoration: const InputDecoration(labelText: 'N° devis lié (optionnel)', border: OutlineInputBorder(), isDense: true),
-        ),
+        if (original.equipementId.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          // Report effectif sur la fiche équipement pas encore branché —
+          // voulu comme un second temps, ce bouton n'est qu'un
+          // emplacement pour l'instant.
+          OutlinedButton.icon(
+            onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Report sur la fiche équipement — disponible prochainement')),
+            ),
+            icon: const Icon(Icons.precision_manufacturing_outlined, size: 18),
+            label: const Text('Reporter sur la fiche équipement'),
+            style: OutlinedButton.styleFrom(foregroundColor: biAccent, side: BorderSide(color: biAccent)),
+          ),
+        ],
         const SizedBox(height: 10),
         TextFormField(
           controller: _noteInterneController,
@@ -529,7 +583,7 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
           onChanged: (_) => setState(() {}),
         ),
       ]),
-      if (original.pole == Poles.petitsTravaux && original.natureTravaux == NatureAffaire.installation)
+      if (original.pole == Poles.installationNeuve)
         _sectionCard('Nouveau matériel installé — fiche GMAO', [
           Text(
             'Le bon ne décrit pas le matériel posé : saisis ici de quoi créer sa fiche dans le parc.',
@@ -662,36 +716,46 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
   }
 
   Widget _champTechniciens() {
-    return StreamBuilder<List<String>>(
-      stream: _userService.getTechnicienNames(),
-      builder: (context, snapshot) {
-        final noms = snapshot.data ?? const <String>[];
-        if (!snapshot.hasData) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8),
-            child: Center(child: CircularProgressIndicator()),
-          );
-        }
-        return Wrap(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (_techniciens.isNotEmpty)
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: _techniciens.map((t) {
+              return Chip(
+                label: Text(t, style: const TextStyle(fontSize: 12)),
+                backgroundColor: biAccent.withValues(alpha: 0.12),
+                onDeleted: () => setState(() {
+                  final ancienEffectif = _techniciens.length;
+                  _techniciens.remove(t);
+                  if (Poles.avecTempsLibre(_pole)) {
+                    _tempsPasse = BiFormat.ajusterDureeEffectif(_tempsPasse, ancienEffectif, _techniciens.length);
+                  }
+                }),
+              );
+            }).toList(),
+          ),
+        const SizedBox(height: 8),
+        Wrap(
           spacing: 8,
           runSpacing: 8,
-          children: noms.map((t) {
-            final selectionne = _techniciens.contains(t);
-            return FilterChip(
-              label: Text(t, style: const TextStyle(fontSize: 12)),
-              selected: selectionne,
-              onSelected: (v) => setState(() {
-                if (v) {
-                  _techniciens.add(t);
-                } else {
-                  _techniciens.remove(t);
-                }
-              }),
-              selectedColor: biAccent.withValues(alpha: 0.15),
-            );
-          }).toList(),
-        );
-      },
+          children: [
+            OutlinedButton.icon(
+              onPressed: _choisirTechniciens,
+              icon: const Icon(Icons.group_add_outlined, size: 18),
+              label: const Text('Ajouter un intervenant'),
+              style: OutlinedButton.styleFrom(foregroundColor: biAccent, side: BorderSide(color: biAccent)),
+            ),
+            TextButton.icon(
+              onPressed: _ajouterTechnicienConnecte,
+              icon: const Icon(Icons.person_add_alt_1_outlined, size: 18),
+              label: const Text('M\'ajouter'),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -704,14 +768,14 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
   }
 
   List<MapEntry<String, String>> _lignesDates(BonIntervention b) {
-    if (b.pole == Poles.maintenance) {
+    if (Poles.avecPeriode(b.pole)) {
       if (b.dateDebut.isNotEmpty && b.dateFin.isNotEmpty && b.dateDebut != b.dateFin) {
         return [MapEntry('Période d\'intervention', 'du ${b.dateDebut} au ${b.dateFin}')];
       }
       return [MapEntry('Date d\'intervention', b.dateDebut.isEmpty ? '—' : b.dateDebut)];
     }
     final lignes = <MapEntry<String, String>>[
-      MapEntry(b.pole == Poles.depannage ? 'Date d\'intervention' : 'Date', b.dateIntervention.isEmpty ? '—' : b.dateIntervention),
+      MapEntry('Date d\'intervention', b.dateIntervention.isEmpty ? '—' : b.dateIntervention),
     ];
     if (b.heureDebut.isNotEmpty || b.heureFin.isNotEmpty) {
       lignes.add(MapEntry('Horaires', [b.heureDebut, b.heureFin].where((s) => s.isNotEmpty).join(' → ')));

@@ -90,27 +90,25 @@ class BonIntervention {
   String email;
   bool horsContrat;
 
-  // Équipement du parc GMAO concerné — Maintenance/Dépannage
-  // uniquement, optionnel (le cas où il n'existe pas encore dans le
-  // parc n'est pas géré pour l'instant). Réutilisé aussi pour Petits
-  // travaux quand la nature est remplacement/réparation (voir
-  // natureTravaux ci-dessous) — même concept, un équipement existant du
-  // parc.
+  // Équipement du parc GMAO concerné — obligatoire pour les pôles
+  // Remplacement à l'identique/Entretien (sous et hors contrat)/
+  // Réparation d'un équipement (voir Poles.avecEquipementObligatoire),
+  // absent sinon.
   String equipementId;
   String equipementNom;
+  String equipementGroupe;
+  String equipementLocalisation;
 
-  // Petits travaux uniquement — l'affaire (travaux sur devis, voir
-  // module `affaires`) dont ce bon assure la réalisation, et la nature
-  // du travail : remplacement/réparation (équipement existant choisi
-  // ci-dessus) ou installation (nouvel équipement, pas encore dans le
-  // parc — géré plus tard).
+  // L'affaire (travaux sur devis, voir module `affaires`) dont ce bon
+  // assure la réalisation — tous les pôles sauf Entretien sous contrat,
+  // qui n'a jamais de devis (voir Poles.avecAffaire).
   String affaireId;
   String affaireNumeroDevis;
-  String natureTravaux;
 
-  // Nature "remplacement" uniquement — nouveau matériel posé à la
-  // place de l'existant, écrase les champs correspondants de la fiche
-  // équipement à la validation bureau (voir GmaoDatabaseService).
+  // Pôle "Remplacement à l'identique" uniquement — nouveau matériel
+  // posé à la place de l'existant, écrase les champs correspondants de
+  // la fiche équipement à la validation bureau (voir
+  // GmaoDatabaseService).
   String remplacementMarque;
   String remplacementReferenceUInt;
   String remplacementNumSerieUInt;
@@ -127,6 +125,13 @@ class BonIntervention {
   String heureFin; // départ — pôles 10/30
 
   List<String> techniciens;
+
+  /// Technicien connecté qui a saisi le bon et capturé la signature
+  /// technicien — distinct de [techniciens] (tous ceux intervenus sur
+  /// place) : seul celui-ci signe réellement, les autres sont juste
+  /// listés comme intervenants.
+  String technicienSignataire;
+
   String compteRendu;
   String obsTech;
   String obsClient;
@@ -169,9 +174,10 @@ class BonIntervention {
     this.horsContrat = false,
     this.equipementId = '',
     this.equipementNom = '',
+    this.equipementGroupe = '',
+    this.equipementLocalisation = '',
     this.affaireId = '',
     this.affaireNumeroDevis = '',
-    this.natureTravaux = '',
     this.remplacementMarque = '',
     this.remplacementReferenceUInt = '',
     this.remplacementNumSerieUInt = '',
@@ -185,6 +191,7 @@ class BonIntervention {
     this.heureDebut = '',
     this.heureFin = '',
     List<String>? techniciens,
+    this.technicienSignataire = '',
     this.compteRendu = '',
     this.obsTech = '',
     this.obsClient = '',
@@ -227,9 +234,10 @@ class BonIntervention {
       horsContrat: d['horsContrat'] ?? false,
       equipementId: d['equipementId'] ?? '',
       equipementNom: d['equipementNom'] ?? '',
+      equipementGroupe: d['equipementGroupe'] ?? '',
+      equipementLocalisation: d['equipementLocalisation'] ?? '',
       affaireId: d['affaireId'] ?? '',
       affaireNumeroDevis: d['affaireNumeroDevis'] ?? '',
-      natureTravaux: d['natureTravaux'] ?? '',
       remplacementMarque: d['remplacementMarque'] ?? '',
       remplacementReferenceUInt: d['remplacementReferenceUInt'] ?? '',
       remplacementNumSerieUInt: d['remplacementNumSerieUInt'] ?? '',
@@ -243,6 +251,7 @@ class BonIntervention {
       heureDebut: d['heureDebut'] ?? '',
       heureFin: d['heureFin'] ?? '',
       techniciens: List<String>.from(d['techniciens'] ?? []),
+      technicienSignataire: d['technicienSignataire'] ?? '',
       compteRendu: d['compteRendu'] ?? '',
       obsTech: d['obsTech'] ?? '',
       obsClient: d['obsClient'] ?? '',
@@ -286,9 +295,10 @@ class BonIntervention {
     'horsContrat': horsContrat,
     'equipementId': equipementId,
     'equipementNom': equipementNom,
+    'equipementGroupe': equipementGroupe,
+    'equipementLocalisation': equipementLocalisation,
     'affaireId': affaireId,
     'affaireNumeroDevis': affaireNumeroDevis,
-    'natureTravaux': natureTravaux,
     'remplacementMarque': remplacementMarque,
     'remplacementReferenceUInt': remplacementReferenceUInt,
     'remplacementNumSerieUInt': remplacementNumSerieUInt,
@@ -302,6 +312,7 @@ class BonIntervention {
     'heureDebut': heureDebut,
     'heureFin': heureFin,
     'techniciens': techniciens,
+    'technicienSignataire': technicienSignataire,
     'compteRendu': compteRendu,
     'obsTech': obsTech,
     'obsClient': obsClient,

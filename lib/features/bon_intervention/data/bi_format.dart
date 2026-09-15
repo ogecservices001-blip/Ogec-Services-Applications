@@ -51,6 +51,45 @@ class BiFormat {
     return m == 0 ? '${h}h' : '${h}h${_deuxChiffres(m)}';
   }
 
+  /// Accepte "Xh", "XhYY" ou un nombre d'heures simple ("3", "3.5",
+  /// "3,5") — le technicien tape rarement le "h" au SAV.
+  static int? _parseDuree(String duree) {
+    final s = duree.trim();
+    if (s.isEmpty) return null;
+    final matchH = RegExp(r'^(\d+)h(\d{1,2})?$').firstMatch(s);
+    if (matchH != null) {
+      final h = int.parse(matchH.group(1)!);
+      final m = int.tryParse(matchH.group(2) ?? '0') ?? 0;
+      return h * 60 + m;
+    }
+    final nombre = double.tryParse(s.replaceAll(',', '.'));
+    if (nombre != null) return (nombre * 60).round();
+    return null;
+  }
+
+  /// Multiplie une durée par le nombre de techniciens intervenus — le
+  /// temps passé standard représente le temps de présence sur site,
+  /// mais la main d'œuvre facturée compte chaque technicien. Laisse la
+  /// durée telle quelle si elle est illisible ou si un seul technicien
+  /// est intervenu.
+  static String multiplierDuree(String duree, int nbTechniciens) {
+    if (nbTechniciens <= 1) return duree;
+    final minutes = _parseDuree(duree);
+    if (minutes == null) return duree;
+    return _formaterDuree(minutes * nbTechniciens);
+  }
+
+  /// Ajuste une durée saisie librement (Dépannage) au prorata d'un
+  /// changement d'effectif — pas de calcul automatique de base à
+  /// multiplier ici, seulement un rééquilibrage proportionnel de ce qui
+  /// est déjà saisi quand un technicien est ajouté ou retiré.
+  static String ajusterDureeEffectif(String duree, int ancienEffectif, int nouvelEffectif) {
+    if (ancienEffectif <= 0 || nouvelEffectif == ancienEffectif) return duree;
+    final minutes = _parseDuree(duree);
+    if (minutes == null || minutes == 0) return duree;
+    return _formaterDuree((minutes * nouvelEffectif / ancienEffectif).round());
+  }
+
   /// Journée type OGEC : 7h30 du lundi au jeudi, 5h le vendredi — vide
   /// le week-end (saisie manuelle requise) et toujours vide au SAV, qui
   /// enchaîne plusieurs interventions dans la même journée (géré par
@@ -102,6 +141,15 @@ class BiFormat {
   }
 
   static String eur(double v) => '${v.toStringAsFixed(2)} €';
+
+  /// "Nom - Groupe - Localisation" (segments vides ignorés) — même
+  /// format partout où l'équipement du bon est affiché (PDF, écran
+  /// bureau), pour ne jamais le composer à deux endroits différemment.
+  static String equipementLabel(BonIntervention b) {
+    return [b.equipementNom, b.equipementGroupe, b.equipementLocalisation]
+        .where((s) => s.trim().isNotEmpty)
+        .join(' - ');
+  }
 
   static double totalHT(List<Presta> prestas) => prestas.fold(
     0,

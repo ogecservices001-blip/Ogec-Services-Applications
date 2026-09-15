@@ -47,6 +47,7 @@ class _TravauxClientsScreenState extends State<TravauxClientsScreen> {
   final AffaireExportService _exportService = AffaireExportService();
   String _recherche = '';
   bool _exportEnCours = false;
+  bool _horsContrat = false;
 
   Future<void> _ouvrirAffairesDuSite(ClientModel site) async {
     if (widget.modeSelection) {
@@ -140,110 +141,141 @@ class _TravauxClientsScreenState extends State<TravauxClientsScreen> {
               ),
             ),
           ),
-          body: StreamBuilder<List<ClientModel>>(
-            stream: _db.getClients(),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData || !affSnapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
+          body: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: ChoiceChip(
+                        label: const Text('Contrat entretien'),
+                        selected: !_horsContrat,
+                        onSelected: (_) => setState(() => _horsContrat = false),
+                        selectedColor: travauxAccent.withValues(alpha: 0.15),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ChoiceChip(
+                        label: const Text('Hors contrat'),
+                        selected: _horsContrat,
+                        onSelected: (_) => setState(() => _horsContrat = true),
+                        selectedColor: travauxAccent.withValues(alpha: 0.15),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: StreamBuilder<List<ClientModel>>(
+                  stream: _db.getClients(),
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData || !affSnapshot.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
 
-              // N'affiche que les clients ayant déjà au moins une affaire
-              // (une site vaut par son id de document `clients`).
-              final affairesParSite = <String, List<AffaireModel>>{};
-              for (final a in toutesAffaires) {
-                affairesParSite.putIfAbsent(a.clientId, () => []).add(a);
-              }
+                    // N'affiche que les clients ayant déjà au moins une
+                    // affaire (une site vaut par son id de document
+                    // `clients`), pour la catégorie contrat choisie.
+                    final affairesParSite = <String, List<AffaireModel>>{};
+                    for (final a in toutesAffaires) {
+                      affairesParSite.putIfAbsent(a.clientId, () => []).add(a);
+                    }
 
-              final sitesParClient = <String, List<ClientModel>>{};
-              for (final s in snapshot.data!) {
-                if (!affairesParSite.containsKey(s.id)) continue;
-                sitesParClient.putIfAbsent(s.nom, () => []).add(s);
-              }
-              final nomsTries = sitesParClient.keys
-                  .where((nom) => nom.toLowerCase().contains(_recherche))
-                  .toList()
-                ..sort();
+                    final sitesParClient = <String, List<ClientModel>>{};
+                    for (final s in snapshot.data!.where((s) => s.horsContrat == _horsContrat)) {
+                      if (!affairesParSite.containsKey(s.id)) continue;
+                      sitesParClient.putIfAbsent(s.nom, () => []).add(s);
+                    }
+                    final nomsTries = sitesParClient.keys
+                        .where((nom) => nom.toLowerCase().contains(_recherche))
+                        .toList()
+                      ..sort();
 
-              if (nomsTries.isEmpty) {
-                return Center(
-                  child: Text(
-                    _recherche.isEmpty
-                        ? 'Aucune affaire pour l\'instant — "Importer" pour commencer'
-                        : "Aucun résultat pour '$_recherche'",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey[600]),
-                  ),
-                );
-              }
-
-              return ListView.builder(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 90),
-                itemCount: nomsTries.length,
-                itemBuilder: (context, index) {
-                  final nom = nomsTries[index];
-                  final sitesClient = sitesParClient[nom]!;
-                  final affairesClient = <AffaireModel>[
-                    for (final s in sitesClient) ...?affairesParSite[s.id],
-                  ];
-
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    child: ListTile(
-                      leading: Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: _couleursGroupes[index % _couleursGroupes.length].withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(12),
+                    if (nomsTries.isEmpty) {
+                      return Center(
+                        child: Text(
+                          _recherche.isEmpty
+                              ? 'Aucune affaire pour l\'instant — "Importer" pour commencer'
+                              : "Aucun résultat pour '$_recherche'",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey[600]),
                         ),
-                        child: Icon(
-                          Icons.assignment_outlined,
-                          color: _couleursGroupes[index % _couleursGroupes.length],
-                        ),
-                      ),
-                      title: Text(nom, style: const TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: Text(
-                        '${sitesClient.length} site(s) · ${affairesClient.length} affaire(s)',
-                        style: TextStyle(color: Colors.grey[600]),
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (!widget.modeSelection)
-                            IconButton(
-                              icon: const Icon(Icons.download, size: 20),
-                              tooltip: 'Exporter les affaires de ce client',
-                              onPressed: () => _exporterPourClient(nom, affairesClient),
+                      );
+                    }
+
+                    return ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 90),
+                      itemCount: nomsTries.length,
+                      itemBuilder: (context, index) {
+                        final nom = nomsTries[index];
+                        final sitesClient = sitesParClient[nom]!;
+                        final affairesClient = <AffaireModel>[
+                          for (final s in sitesClient) ...?affairesParSite[s.id],
+                        ];
+
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          child: ListTile(
+                            leading: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: _couleursGroupes[index % _couleursGroupes.length].withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(
+                                Icons.assignment_outlined,
+                                color: _couleursGroupes[index % _couleursGroupes.length],
+                              ),
                             ),
-                          const Icon(Icons.chevron_right),
-                        ],
-                      ),
-                      onTap: () {
-                        if (sitesClient.length == 1) {
-                          _ouvrirAffairesDuSite(sitesClient.first);
-                          return;
-                        }
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => ClientListScreen(
-                              filterNom: nom,
-                              title: nom,
-                              color: travauxAccent,
-                              onClientTap: _ouvrirAffairesDuSite,
-                              countLabel: (site) {
-                                final n = affairesParSite[site.id]?.length ?? 0;
-                                return n == 0 ? null : '$n affaire(s)';
-                              },
+                            title: Text(nom, style: const TextStyle(fontWeight: FontWeight.bold)),
+                            subtitle: Text(
+                              '${sitesClient.length} site(s) · ${affairesClient.length} affaire(s)',
+                              style: TextStyle(color: Colors.grey[600]),
                             ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (!widget.modeSelection)
+                                  IconButton(
+                                    icon: const Icon(Icons.download, size: 20),
+                                    tooltip: 'Exporter les affaires de ce client',
+                                    onPressed: () => _exporterPourClient(nom, affairesClient),
+                                  ),
+                                const Icon(Icons.chevron_right),
+                              ],
+                            ),
+                            onTap: () {
+                              if (sitesClient.length == 1) {
+                                _ouvrirAffairesDuSite(sitesClient.first);
+                                return;
+                              }
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => ClientListScreen(
+                                    filterNom: nom,
+                                    title: nom,
+                                    color: travauxAccent,
+                                    onClientTap: _ouvrirAffairesDuSite,
+                                    countLabel: (site) {
+                                      final n = affairesParSite[site.id]?.length ?? 0;
+                                      return n == 0 ? null : '$n affaire(s)';
+                                    },
+                                  ),
+                                ),
+                              );
+                            },
                           ),
                         );
                       },
-                    ),
-                  );
-                },
-              );
-            },
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
         );
       },

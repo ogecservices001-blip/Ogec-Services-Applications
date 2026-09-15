@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:package_info_plus/package_info_plus.dart';
+import '../services/app_version_service.dart';
 import '../web_reload/reload.dart';
 
 /// Bandeau global (web uniquement) qui détecte qu'une nouvelle version de
@@ -45,7 +45,8 @@ class _WebUpdateBannerState extends State<WebUpdateBanner> {
 
   Future<void> _verifier() async {
     try {
-      final infos = await PackageInfo.fromPlatform();
+      final infos = await AppVersionService.actuelle();
+      if (infos == null) return;
       final horodatage = DateTime.now().millisecondsSinceEpoch;
       final uri = Uri.base.resolve('version.json?t=$horodatage');
       final reponse = await http.get(uri).timeout(const Duration(seconds: 8));

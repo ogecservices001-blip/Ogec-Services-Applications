@@ -73,6 +73,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
               "Tableau de bord",
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
+            const SizedBox(height: 4),
             const AppVersionLabel(),
             const SizedBox(height: 20),
 
