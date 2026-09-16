@@ -17,7 +17,19 @@ import 'travaux_clients_screen.dart' show travauxAccent;
 class ClientAffairesListScreen extends StatelessWidget {
   final ClientModel client;
   final bool modeSelection;
-  const ClientAffairesListScreen({super.key, required this.client, this.modeSelection = false});
+
+  /// Quand renseigné (picker du Bon d'intervention), ne montre que les
+  /// affaires dont la nature correspond exactement au pôle en cours — les
+  /// affaires de nature différente (ou sans nature renseignée) sont
+  /// masquées, pas seulement grisées.
+  final String? natureFiltre;
+
+  const ClientAffairesListScreen({
+    super.key,
+    required this.client,
+    this.modeSelection = false,
+    this.natureFiltre,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -37,11 +49,17 @@ class ClientAffairesListScreen extends StatelessWidget {
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
-          final affaires = snapshot.data!..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          final affaires = snapshot.data!
+              .where((a) => natureFiltre == null || a.nature == natureFiltre)
+              .toList()
+            ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
           if (affaires.isEmpty) {
             return Center(
               child: Text(
-                'Aucune affaire pour ce site pour l\'instant',
+                natureFiltre == null
+                    ? 'Aucune affaire pour ce site pour l\'instant'
+                    : 'Aucune affaire "${NatureAffaire.label(natureFiltre!)}" pour ce site',
+                textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.grey[600]),
               ),
             );

@@ -35,7 +35,13 @@ const List<Color> _couleursGroupes = [
 /// passant directement par le Répertoire Travaux Clients.
 class TravauxClientsScreen extends StatefulWidget {
   final bool modeSelection;
-  const TravauxClientsScreen({super.key, this.modeSelection = false});
+
+  /// Quand renseigné (picker du Bon d'intervention), ne montre que les
+  /// clients/sites ayant au moins une affaire de cette nature, et ne
+  /// propose ensuite que ces affaires-là dans [ClientAffairesListScreen].
+  final String? natureFiltre;
+
+  const TravauxClientsScreen({super.key, this.modeSelection = false, this.natureFiltre});
 
   @override
   State<TravauxClientsScreen> createState() => _TravauxClientsScreenState();
@@ -53,7 +59,13 @@ class _TravauxClientsScreenState extends State<TravauxClientsScreen> {
     if (widget.modeSelection) {
       final affaire = await Navigator.push<AffaireModel>(
         context,
-        MaterialPageRoute(builder: (context) => ClientAffairesListScreen(client: site, modeSelection: true)),
+        MaterialPageRoute(
+          builder: (context) => ClientAffairesListScreen(
+            client: site,
+            modeSelection: true,
+            natureFiltre: widget.natureFiltre,
+          ),
+        ),
       );
       if (affaire != null && mounted) {
         Navigator.pop(context, (site, affaire));
@@ -177,9 +189,14 @@ class _TravauxClientsScreenState extends State<TravauxClientsScreen> {
 
                     // N'affiche que les clients ayant déjà au moins une
                     // affaire (une site vaut par son id de document
-                    // `clients`), pour la catégorie contrat choisie.
+                    // `clients`), pour la catégorie contrat choisie — et,
+                    // si un pôle BI est en cours, uniquement de la nature
+                    // correspondante.
+                    final affairesRetenues = widget.natureFiltre == null
+                        ? toutesAffaires
+                        : toutesAffaires.where((a) => a.nature == widget.natureFiltre).toList();
                     final affairesParSite = <String, List<AffaireModel>>{};
-                    for (final a in toutesAffaires) {
+                    for (final a in affairesRetenues) {
                       affairesParSite.putIfAbsent(a.clientId, () => []).add(a);
                     }
 
@@ -247,19 +264,27 @@ class _TravauxClientsScreenState extends State<TravauxClientsScreen> {
                                 const Icon(Icons.chevron_right),
                               ],
                             ),
-                            onTap: () {
+                            onTap: () async {
                               if (sitesClient.length == 1) {
                                 _ouvrirAffairesDuSite(sitesClient.first);
                                 return;
                               }
-                              Navigator.push(
+                              // Le choix du site doit d'abord refermer cet
+                              // écran intermédiaire (comme le fait
+                              // BiClientPickerScreen) avant d'ouvrir les
+                              // affaires du site — sinon, en mode sélection,
+                              // le pop final de _ouvrirAffairesDuSite
+                              // referme le mauvais écran et ramène ici au
+                              // lieu de continuer le BI.
+                              final site = await Navigator.push<ClientModel>(
                                 context,
                                 MaterialPageRoute(
                                   builder: (context) => ClientListScreen(
                                     filterNom: nom,
+                                    filterIds: sitesClient.map((s) => s.id).toSet(),
                                     title: nom,
                                     color: travauxAccent,
-                                    onClientTap: _ouvrirAffairesDuSite,
+                                    onClientTap: (s) => Navigator.pop(context, s),
                                     countLabel: (site) {
                                       final n = affairesParSite[site.id]?.length ?? 0;
                                       return n == 0 ? null : '$n affaire(s)';
@@ -267,6 +292,7 @@ class _TravauxClientsScreenState extends State<TravauxClientsScreen> {
                                   ),
                                 ),
                               );
+                              if (site != null) await _ouvrirAffairesDuSite(site);
                             },
                           ),
                         );

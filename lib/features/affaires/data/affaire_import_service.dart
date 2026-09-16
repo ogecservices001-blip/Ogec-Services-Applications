@@ -147,7 +147,12 @@ class AffaireImportService {
         continue;
       }
       final existante = numeroDevis.isEmpty ? null : affaireParCle['${client.id}|||$numeroDevis'];
-      final nature = natureParLibelle[_normaliser(natureBrute)] ?? '';
+      // La colonne contient tantôt le code déjà (ex: "30"), tantôt le
+      // libellé complet (ex: "Réparation d'un équipement") selon qui l'a
+      // saisi dans le fichier — les deux formats sont acceptés.
+      final nature = NatureAffaire.all.containsKey(natureBrute)
+          ? natureBrute
+          : (natureParLibelle[_normaliser(natureBrute)] ?? '');
       lignes.add(
         LigneAffaireImport(
           numeroDevis: numeroDevis,

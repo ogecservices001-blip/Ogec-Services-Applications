@@ -29,6 +29,21 @@ class Poles {
 
   static String label(String code) => all[code] ?? code;
 
+  /// Ordre d'affichage des pôles dans l'assistant BI — du plus fréquent
+  /// (Dépannage) au plus rare pour le technicien, pas l'ordre numérique
+  /// des codes.
+  static const List<String> ordreAffichage = [
+    depannage,
+    remplacementIdentique,
+    installationNeuve,
+    reparationEquipement,
+    reparationDiverse,
+    entretienSousContrat,
+    entretienHorsContrat,
+    miseADisposition,
+    livraisonMateriel,
+  ];
+
   /// Devis (Affaire) obligatoire — ni l'entretien sous contrat (visite
   /// périodique déjà couverte par le contrat) ni le dépannage (appel
   /// SAV, pas de devis préétabli) n'en ont.
@@ -46,10 +61,23 @@ class Poles {
       code == reparationEquipement ||
       code == entretienSousContrat;
 
-  /// Équipement du parc GMAO proposé mais pas exigé — Dépannage
-  /// uniquement (l'appel SAV ne cible pas toujours un équipement
-  /// enregistré).
-  static bool avecEquipementOptionnel(String code) => code == depannage;
+  /// Équipement du parc GMAO proposé mais pas exigé — Dépannage (l'appel
+  /// SAV ne cible pas toujours un équipement enregistré) et Réparation
+  /// diverse (voir avecEquipementLibre : souvent hors équipement précis).
+  static bool avecEquipementOptionnel(String code) => code == depannage || code == reparationDiverse;
+
+  /// Réparation diverse uniquement : en plus du picker (optionnel), le
+  /// technicien peut décrire à la main un équipement non répertorié dans
+  /// le parc GMAO (ex: calorifuge, purgeur) — texte libre, sans lien
+  /// avec une fiche équipement.
+  static bool avecEquipementLibre(String code) => code == reparationDiverse;
+
+  /// Installation neuve uniquement : pas d'équipement existant à choisir,
+  /// le technicien saisit lui-même l'identité et les caractéristiques du
+  /// matériel posé (voir avecEquipementObligatoire, qui ne le couvre
+  /// pas), utilisées à la validation bureau pour créer sa fiche dans le
+  /// parc GMAO.
+  static bool avecNouvelEquipement(String code) => code == installationNeuve;
 
   /// Temps passé saisi librement puis multiplié par l'effectif plutôt
   /// que calculé sur une journée type — hérite de l'ancien pôle
@@ -58,6 +86,13 @@ class Poles {
   static bool avecTempsLibre(String code) =>
       code == reparationEquipement || code == reparationDiverse || code == depannage;
 }
+
+/// Seule famille du référentiel `types_equipement` structurée à ce jour
+/// (marque/référence/n° série/date MES) — voir GmaoDatabaseService,
+/// `semerFamillesInitiales()`. L'Installation neuve du Bon d'intervention
+/// s'y limite donc pour l'instant ; les autres familles (groupe, VRV...)
+/// suivront quand leurs fiches seront structurées à leur tour.
+const String biInstallationTypeEquipementId = 'mod_split';
 
 /// Statuts du workflow d'un bon d'intervention.
 class Statuts {

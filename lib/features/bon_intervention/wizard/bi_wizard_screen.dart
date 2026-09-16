@@ -10,6 +10,8 @@ import '../../affaires/data/affaire_model.dart';
 import '../../affaires/travaux_clients_screen.dart';
 import '../../annuaire/clients/client_model.dart';
 import '../../gmao/equipements/equipement_model.dart';
+import '../../gmao/gmao_database_service.dart';
+import '../../gmao/types_equipement/type_equipement_model.dart';
 import '../data/bi_constants.dart';
 import '../data/bi_format.dart';
 import '../data/bi_model.dart';
@@ -22,7 +24,7 @@ import 'bi_technicien_picker_screen.dart';
 
 const Color biAccent = Colors.deepPurple;
 
-/// Assistant technicien en 6 étapes pour créer un bon d'intervention —
+/// Assistant technicien en 5 étapes pour créer un bon d'intervention —
 /// porté depuis re.ogec.bi (WizardScreens.kt/AppViewModel.kt). Phase 1 :
 /// pas encore de génération PDF ni d'archivage Drive, seulement la
 /// saisie et la transmission au bureau.
@@ -37,6 +39,7 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   final BiService _biService = BiService();
   final UserService _userService = UserService();
   final BiPhotoService _photoService = BiPhotoService();
+  final GmaoDatabaseService _gmaoDb = GmaoDatabaseService();
 
   int _etape = 0;
   static const _totalEtapes = 5;
@@ -61,7 +64,17 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   final _remplacementNumSerieUIntController = TextEditingController();
   final _remplacementRefUExtController = TextEditingController();
   final _remplacementNumSerieUExtController = TextEditingController();
-  String _remplacementDateMES = '';
+  String _remplacementDateMES = BiFormat.today();
+
+  // Pôle Installation neuve uniquement — identité du nouveau matériel
+  // (pas d'équipement existant à choisir, voir Poles.avecNouvelEquipement).
+  final _installationNomController = TextEditingController();
+  final _installationLocalisationController = TextEditingController();
+  final _installationGroupeController = TextEditingController();
+
+  // Pôle Réparation diverse uniquement — équipement non répertorié dans
+  // le parc GMAO, décrit à la main (voir Poles.avecEquipementLibre).
+  final _equipementLibreController = TextEditingController();
 
   final _emailController = TextEditingController();
 
@@ -76,13 +89,10 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   final _tempsPasseController = TextEditingController();
   bool _tempsManuel = false;
 
-  // ---------- Étape 2 : Compte rendu ----------
+  // ---------- Étape 2 : Compte rendu + photos ----------
   final _compteRenduController = TextEditingController();
   final _obsTechController = TextEditingController();
   final _obsClientController = TextEditingController();
-
-  // ---------- Étape 3 : Prestations + photos ----------
-  final List<Presta> _prestas = [Presta()];
   final List<PhotoBI> _photos = [];
   final Map<int, Uint8List> _apercusPhotos = {};
   final Set<int> _photosEnCours = {};
@@ -127,6 +137,10 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
     _remplacementNumSerieUIntController.dispose();
     _remplacementRefUExtController.dispose();
     _remplacementNumSerieUExtController.dispose();
+    _installationNomController.dispose();
+    _installationLocalisationController.dispose();
+    _installationGroupeController.dispose();
+    _equipementLibreController.dispose();
     _tempsPasseController.dispose();
     _compteRenduController.dispose();
     _obsTechController.dispose();
@@ -154,8 +168,13 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       // jamais créer de trou dans la numérotation sur un bon commencé
       // puis abandonné).
       if (_chrono != 0) _numero = BiFormat.numeroBI(pole, BiFormat.currentYear(), _chrono);
+      // Une tuile de pôle est un choix net — on avance directement à
+      // l'étape Client plutôt que de faire apparaître la suite sur la
+      // même page.
+      _etape = 1;
     });
     _majTempsStandard();
+    _prefillCompteRenduEntretien();
   }
 
   /// Réserve le numéro du bon s'il ne l'est pas déjà — appelé juste
@@ -199,7 +218,11 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
     _remplacementNumSerieUIntController.clear();
     _remplacementRefUExtController.clear();
     _remplacementNumSerieUExtController.clear();
-    _remplacementDateMES = '';
+    _remplacementDateMES = BiFormat.today();
+    _installationNomController.clear();
+    _installationLocalisationController.clear();
+    _installationGroupeController.clear();
+    _equipementLibreController.clear();
   }
 
   void _preremplirDepuisSite(ClientModel site) {
@@ -219,7 +242,9 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
     if (Poles.avecAffaire(_pole)) {
       final resultat = await Navigator.push<(ClientModel, AffaireModel)>(
         context,
-        MaterialPageRoute(builder: (context) => const TravauxClientsScreen(modeSelection: true)),
+        MaterialPageRoute(
+          builder: (context) => TravauxClientsScreen(modeSelection: true, natureFiltre: _pole),
+        ),
       );
       if (resultat != null && mounted) {
         final (site, affaire) = resultat;
@@ -246,7 +271,55 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
         _effacerRemplacement();
         _preremplirDepuisSite(site);
       });
+      _prefillCompteRenduEntretien();
     }
+  }
+
+  /// Pôle Entretien sous contrat uniquement : pré-remplit le compte
+  /// rendu avec un texte type ("Entretien semestriel de X climatiseurs
+  /// autonomes, Y brasseurs d'air.") construit en comptant les
+  /// équipements du site par famille et en retenant leur fréquence
+  /// d'entretien annuelle dominante — reste ensuite librement modifiable
+  /// par le technicien, jamais réécrit si déjà saisi.
+  Future<void> _prefillCompteRenduEntretien() async {
+    if (_pole != Poles.entretienSousContrat) return;
+    final client = _client;
+    if (client == null) return;
+    if (_compteRenduController.text.trim().isNotEmpty) return;
+    final equipements = await _gmaoDb.getEquipementsForClient(client.id).first;
+    final types = await _gmaoDb.getTypesEquipement().first;
+    if (!mounted) return;
+    if (_pole != Poles.entretienSousContrat || _client?.id != client.id) return;
+    final texte = _texteEntretienAuto(equipements, types);
+    if (texte.isNotEmpty && _compteRenduController.text.trim().isEmpty) {
+      setState(() => _compteRenduController.text = texte);
+    }
+  }
+
+  String _texteEntretienAuto(List<EquipementModel> equipements, List<TypeEquipementModel> types) {
+    if (equipements.isEmpty) return '';
+    final typesById = {for (final t in types) t.id: t};
+    final comptes = <String, int>{};
+    final freqCount = <int, int>{};
+    for (final eq in equipements) {
+      final type = typesById[eq.typeEquipementId];
+      final label = ((type?.typeEquipement1Fixe ?? '').isNotEmpty
+              ? type!.typeEquipement1Fixe
+              : (type?.nom ?? 'équipement'))
+          .toLowerCase();
+      comptes[label] = (comptes[label] ?? 0) + 1;
+      final freq = int.tryParse(eq.champsEnTete['freqEntretienAnnuelle']?.toString() ?? '');
+      if (freq != null) freqCount[freq] = (freqCount[freq] ?? 0) + 1;
+    }
+    if (comptes.isEmpty) return '';
+    var freqLabel = '';
+    if (freqCount.isNotEmpty) {
+      final entries = freqCount.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+      const labels = {1: 'annuel', 2: 'semestriel', 4: 'trimestriel', 12: 'mensuel'};
+      freqLabel = labels[entries.first.key] ?? '';
+    }
+    final segments = comptes.entries.map((e) => '${e.value} ${e.key}${e.value > 1 ? 's' : ''}').join(', ');
+    return freqLabel.isEmpty ? 'Entretien de $segments.' : 'Entretien $freqLabel de $segments.';
   }
 
   Future<void> _choisirAffaire() async {
@@ -254,7 +327,9 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
     if (client == null) return;
     final affaire = await Navigator.push<AffaireModel>(
       context,
-      MaterialPageRoute(builder: (context) => ClientAffairesListScreen(client: client, modeSelection: true)),
+      MaterialPageRoute(
+        builder: (context) => ClientAffairesListScreen(client: client, modeSelection: true, natureFiltre: _pole),
+      ),
     );
     if (affaire != null && mounted) setState(() => _affaire = affaire);
   }
@@ -378,10 +453,27 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   /// Client obligatoire, puis devis (Affaire) et équipement du parc
   /// GMAO selon ce qu'exige le pôle choisi (voir Poles.avecAffaire/
   /// avecEquipementObligatoire).
-  bool get _peutAvancerEtape0 {
-    if (_pole.isEmpty || _client == null) return false;
+  /// Marque/référence/n° série/date MES — exigés pour "Remplacement à
+  /// l'identique" (nouveau matériel posé) et "Installation neuve"
+  /// (matériel installé), jamais pour les autres pôles.
+  bool get _remplacementFieldsComplets =>
+      _remplacementMarqueController.text.trim().isNotEmpty &&
+      _remplacementRefUIntController.text.trim().isNotEmpty &&
+      _remplacementNumSerieUIntController.text.trim().isNotEmpty &&
+      _remplacementRefUExtController.text.trim().isNotEmpty &&
+      _remplacementNumSerieUExtController.text.trim().isNotEmpty &&
+      _remplacementDateMES.isNotEmpty;
+
+  bool get _peutAvancerEtapeClient {
+    if (_client == null) return false;
     if (Poles.avecAffaire(_pole) && _affaire == null) return false;
     if (Poles.avecEquipementObligatoire(_pole) && _equipement == null) return false;
+    if (_pole == Poles.remplacementIdentique && !_remplacementFieldsComplets) return false;
+    if (Poles.avecNouvelEquipement(_pole)) {
+      if (_installationNomController.text.trim().isEmpty) return false;
+      if (_installationLocalisationController.text.trim().isEmpty) return false;
+      if (!_remplacementFieldsComplets) return false;
+    }
     return true;
   }
 
@@ -401,6 +493,32 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       [c?.codePostal ?? '', c?.commune ?? ''].where((s) => s.isNotEmpty).join(' '),
     ].where((s) => s.trim().isNotEmpty).toList();
 
+    // Identité de l'équipement du bon — trois origines possibles selon
+    // le pôle : nouveau matériel saisi par le technicien (Installation
+    // neuve), équipement existant choisi dans le parc GMAO, ou nom libre
+    // (Réparation diverse, équipement non répertorié) — jamais deux à la
+    // fois pour un même bon.
+    String equipementNomFinal;
+    String equipementGroupeFinal;
+    String equipementLocalisationFinal;
+    if (Poles.avecNouvelEquipement(_pole)) {
+      equipementNomFinal = _installationNomController.text.trim();
+      equipementGroupeFinal = _installationGroupeController.text.trim();
+      equipementLocalisationFinal = _installationLocalisationController.text.trim();
+    } else if (_equipement != null) {
+      equipementNomFinal = _equipement!.nom;
+      equipementGroupeFinal = _equipement!.groupe;
+      equipementLocalisationFinal = _equipement!.localisation;
+    } else if (Poles.avecEquipementLibre(_pole) && _equipementLibreController.text.trim().isNotEmpty) {
+      equipementNomFinal = _equipementLibreController.text.trim();
+      equipementGroupeFinal = '';
+      equipementLocalisationFinal = '';
+    } else {
+      equipementNomFinal = '';
+      equipementGroupeFinal = '';
+      equipementLocalisationFinal = '';
+    }
+
     return BonIntervention(
       pole: _pole,
       chrono: _chrono,
@@ -414,11 +532,13 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       email: _emailController.text.trim(),
       horsContrat: c?.horsContrat ?? false,
       equipementId: _equipement?.id ?? '',
-      equipementNom: _equipement?.nom ?? '',
-      equipementGroupe: _equipement?.groupe ?? '',
-      equipementLocalisation: _equipement?.localisation ?? '',
+      equipementNom: equipementNomFinal,
+      equipementGroupe: equipementGroupeFinal,
+      equipementLocalisation: equipementLocalisationFinal,
       affaireId: _affaire?.id ?? '',
       affaireNumeroDevis: _affaire?.numeroDevis ?? '',
+      affaireNumeroCommandeClient: _affaire?.numeroCommandeClient ?? '',
+      affaireDateCommandeClient: _affaire?.dateCommandeClient ?? '',
       remplacementMarque: _remplacementMarqueController.text.trim(),
       remplacementReferenceUInt: _remplacementRefUIntController.text.trim(),
       remplacementNumSerieUInt: _remplacementNumSerieUIntController.text.trim(),
@@ -442,11 +562,10 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       compteRendu: _compteRenduController.text.trim(),
       obsTech: _obsTechController.text.trim(),
       obsClient: _obsClientController.text.trim(),
-      // Le technicien ne saisit jamais de prix — la ligne pu reste vide.
-      prestas: _prestas
-          .where((p) => p.designation.trim().isNotEmpty)
-          .map((p) => Presta(designation: p.designation, quantite: p.quantite))
-          .toList(),
+      // Le technicien ne saisit plus les prestations : déjà connues du
+      // devis (voir _affaire), le bureau les reprend lui-même à la
+      // validation (voir "Prestations & fournitures" côté bureau).
+      prestas: const [],
       photos: List.from(_photos),
       sigTech: '',
       sigClient: '',
@@ -598,19 +717,22 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   Widget _buildEtape() {
     switch (_etape) {
       case 0:
-        return _etapePoleClient();
+        return _etapePole();
       case 1:
-        return _etapeTechniciensDates();
+        return _etapeClient();
       case 2:
-        return _etapeCompteRendu();
+        return _etapeTechniciensDates();
       case 3:
-        return _etapePrestationsPhotos();
+        return _etapeCompteRendu();
       default:
         return _etapeSignatures();
     }
   }
 
   Widget _buildBarreBas() {
+    // Étape Pôle : le seul geste est de taper une tuile (avance déjà
+    // automatiquement) — pas de barre "Suivant" toujours désactivée.
+    if (_etape == 0) return const SizedBox.shrink();
     final dernierEtape = _etape == _totalEtapes - 1;
     return Container(
       padding: const EdgeInsets.all(16),
@@ -635,7 +757,7 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
             if (!dernierEtape)
               Expanded(
                 child: ElevatedButton(
-                  onPressed: (_etape == 0 && !_peutAvancerEtape0)
+                  onPressed: (_etape == 1 && !_peutAvancerEtapeClient)
                       ? null
                       : () => setState(() => _etape++),
                   style: ElevatedButton.styleFrom(backgroundColor: biAccent, foregroundColor: Colors.white),
@@ -678,23 +800,127 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
     ),
   );
 
-  // ---------- Étape 0 ----------
-  Widget _etapePoleClient() {
+  // Icônes référencées via switch (littéraux directs) plutôt qu'une Map
+  // — le tree-shaker d'icônes de Flutter web (activé par défaut en
+  // release) ne détecte pas fiablement les IconData qui ne vivent que
+  // dans une Map, et les avait purement et simplement retirées de la
+  // police embarquée (glyphes vides à l'écran) alors que la compilation
+  // ne signalait rien.
+  IconData _iconePole(String code) => switch (code) {
+    Poles.depannage => Icons.bolt,
+    Poles.remplacementIdentique => Icons.autorenew,
+    Poles.installationNeuve => Icons.add_circle_outline,
+    Poles.reparationEquipement => Icons.build_circle_outlined,
+    Poles.reparationDiverse => Icons.handyman_outlined,
+    Poles.entretienSousContrat => Icons.verified_outlined,
+    Poles.entretienHorsContrat => Icons.receipt_long_outlined,
+    Poles.miseADisposition => Icons.inventory_2_outlined,
+    Poles.livraisonMateriel => Icons.local_shipping_outlined,
+    _ => Icons.build_outlined,
+  };
+
+  // Une couleur bien distincte par pôle — pour repérer le bon pôle d'un
+  // coup d'œil plutôt que de devoir lire chaque étiquette.
+  static const Map<String, Color> _couleursPoles = {
+    Poles.depannage: Color(0xFFE53935),
+    Poles.remplacementIdentique: Color(0xFF1E88E5),
+    Poles.installationNeuve: Color(0xFF43A047),
+    Poles.reparationEquipement: Color(0xFFFB8C00),
+    Poles.reparationDiverse: Color(0xFF8D6E63),
+    Poles.entretienSousContrat: Color(0xFF00897B),
+    Poles.entretienHorsContrat: Color(0xFF8E24AA),
+    Poles.miseADisposition: Color(0xFF546E7A),
+    Poles.livraisonMateriel: Color(0xFF3949AB),
+  };
+
+  /// Étiquette longue pleine largeur — même gabarit que les cartes du
+  /// tableau de bord (TopMenuCard/DashboardGridCard), plus lisible et
+  /// plus facile à toucher que les petits chips pour un choix aussi
+  /// structurant que le pôle — et sa propre couleur/icône pour repérer
+  /// le bon pôle d'un coup d'œil.
+  Widget _cartePole(String code) {
+    final selectionne = _pole == code;
+    final couleur = _couleursPoles[code] ?? biAccent;
+    return Material(
+      color: selectionne ? couleur.withValues(alpha: 0.1) : Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => _choisirPole(code),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: selectionne ? couleur : Colors.grey[300]!, width: selectionne ? 2 : 1),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: couleur.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(_iconePole(code), color: couleur, size: 24),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  Poles.label(code),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                    color: selectionne ? couleur : Colors.black87,
+                  ),
+                ),
+              ),
+              Icon(selectionne ? Icons.check_circle : Icons.chevron_right, color: selectionne ? couleur : Colors.grey),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ---------- Étape 0 : Pôle ----------
+  Widget _etapePole() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _sectionTitle('Pôle'),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: Poles.all.entries.map((e) {
-            return ChoiceChip(
-              label: Text(e.value),
-              selected: _pole == e.key,
-              onSelected: (_) => _choisirPole(e.key),
-              selectedColor: biAccent.withValues(alpha: 0.15),
-            );
-          }).toList(),
+        for (final code in Poles.ordreAffichage) ...[
+          _cartePole(code),
+          if (code != Poles.ordreAffichage.last) const SizedBox(height: 8),
+        ],
+      ],
+    );
+  }
+
+  // ---------- Étape 1 : Client ----------
+  Widget _etapeClient() {
+    final couleur = _couleursPoles[_pole] ?? biAccent;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: couleur.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: couleur.withValues(alpha: 0.4)),
+          ),
+          child: Row(
+            children: [
+              Icon(_iconePole(_pole), color: couleur, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  Poles.label(_pole),
+                  style: TextStyle(fontWeight: FontWeight.bold, color: couleur),
+                ),
+              ),
+            ],
+          ),
         ),
         if (_allocationEnCours)
           const Padding(
@@ -709,7 +935,7 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
               style: TextStyle(fontWeight: FontWeight.bold, color: biAccent),
             ),
           )
-        else if (_pole.isNotEmpty)
+        else
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Text(
@@ -717,6 +943,7 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
               style: TextStyle(fontSize: 12, color: Colors.grey[600]),
             ),
           ),
+        const SizedBox(height: 16),
         _sectionTitle('Client'),
         if (_client != null)
           Card(
@@ -766,7 +993,19 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
             child: ListTile(
               leading: const Icon(Icons.assignment_outlined, color: biAccent),
               title: Text(_affaire!.numeroDevis.isEmpty ? '(sans n° de devis)' : _affaire!.numeroDevis),
-              subtitle: Text(_affaire!.designationPrestations, maxLines: 2, overflow: TextOverflow.ellipsis),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_affaire!.designationPrestations, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  if (_affaire!.numeroCommandeClient.isNotEmpty)
+                    Text(
+                      'Commande client : ${_affaire!.numeroCommandeClient}'
+                      '${_affaire!.dateCommandeClient.isNotEmpty ? ' du ${_affaire!.dateCommandeClient}' : ''}',
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                ],
+              ),
               trailing: IconButton(
                 icon: const Icon(Icons.close),
                 onPressed: () => setState(() => _affaire = null),
@@ -806,81 +1045,38 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
           ),
         if (_equipement != null && _pole == Poles.remplacementIdentique) ...[
           _sectionTitle('Nouveau matériel'),
-          TextField(
-            controller: _remplacementMarqueController,
-            decoration: const InputDecoration(labelText: 'Marque', border: OutlineInputBorder(), isDense: true),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _remplacementRefUIntController,
-                  decoration: const InputDecoration(
-                    labelText: 'Référence unité intérieure',
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: TextField(
-                  controller: _remplacementNumSerieUIntController,
-                  decoration: const InputDecoration(
-                    labelText: 'N° série unité intérieure',
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _remplacementRefUExtController,
-                  decoration: const InputDecoration(
-                    labelText: 'Référence unité extérieure',
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: TextField(
-                  controller: _remplacementNumSerieUExtController,
-                  decoration: const InputDecoration(
-                    labelText: 'N° série unité extérieure',
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          InkWell(
-            onTap: () => _choisirDate((d) {
-              setState(() {
-                _remplacementDateMES =
-                    '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
-              });
-              return true;
-            }),
-            child: InputDecorator(
-              decoration: const InputDecoration(
-                labelText: 'Date de mise en service',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
-              child: Text(_remplacementDateMES.isEmpty ? '—' : _remplacementDateMES),
-            ),
-          ),
+          ..._blocNouveauMateriel(),
         ],
+      ],
+      if (Poles.avecNouvelEquipement(_pole)) ...[
+        _sectionTitle('Nouvel équipement à installer'),
+        const Padding(
+          padding: EdgeInsets.only(bottom: 8),
+          child: Text(
+            'Seul le climatiseur autonome (Split-Système) est structuré pour le moment — '
+            'les autres familles suivront.',
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+        ),
+        TextField(
+          controller: _installationNomController,
+          decoration: const InputDecoration(labelText: 'Nom de l\'équipement', border: OutlineInputBorder(), isDense: true),
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _installationLocalisationController,
+          decoration: const InputDecoration(labelText: 'Localisation', border: OutlineInputBorder(), isDense: true),
+          onChanged: (_) => setState(() {}),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _installationGroupeController,
+          decoration: const InputDecoration(labelText: 'Groupe (optionnel)', border: OutlineInputBorder(), isDense: true),
+        ),
+        const SizedBox(height: 10),
+        _sectionTitle('Caractéristiques du matériel'),
+        ..._blocNouveauMateriel(),
       ],
       if (Poles.avecEquipementOptionnel(_pole)) ...[
         _sectionTitle('Équipement (optionnel)'),
@@ -898,14 +1094,114 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
               ),
             ),
           )
-        else
+        else ...[
           OutlinedButton.icon(
             onPressed: _choisirEquipement,
             icon: const Icon(Icons.precision_manufacturing_outlined),
             label: const Text('Choisir un équipement du parc GMAO'),
             style: OutlinedButton.styleFrom(foregroundColor: biAccent, side: BorderSide(color: biAccent)),
           ),
+          if (Poles.avecEquipementLibre(_pole)) ...[
+            const SizedBox(height: 10),
+            TextField(
+              controller: _equipementLibreController,
+              decoration: const InputDecoration(
+                labelText: 'Ou décrire l\'équipement (ex: calorifuge, purgeur)',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+          ],
+        ],
       ],
+    ];
+  }
+
+  /// Marque/référence/n° série unité int./ext./date MES — champs MOD
+  /// SPLIT partagés par "Remplacement à l'identique" (nouveau matériel
+  /// posé) et "Installation neuve" (matériel installé), voir
+  /// Poles.avecNouvelEquipement.
+  List<Widget> _blocNouveauMateriel() {
+    return [
+      TextField(
+        controller: _remplacementMarqueController,
+        decoration: const InputDecoration(labelText: 'Marque', border: OutlineInputBorder(), isDense: true),
+        onChanged: (_) => setState(() {}),
+      ),
+      const SizedBox(height: 10),
+      Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _remplacementRefUIntController,
+              decoration: const InputDecoration(
+                labelText: 'Référence unité intérieure',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: TextField(
+              controller: _remplacementNumSerieUIntController,
+              decoration: const InputDecoration(
+                labelText: 'N° série unité intérieure',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 10),
+      Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _remplacementRefUExtController,
+              decoration: const InputDecoration(
+                labelText: 'Référence unité extérieure',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: TextField(
+              controller: _remplacementNumSerieUExtController,
+              decoration: const InputDecoration(
+                labelText: 'N° série unité extérieure',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 10),
+      InkWell(
+        onTap: () => _choisirDate((d) {
+          setState(() {
+            _remplacementDateMES =
+                '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+          });
+          return true;
+        }),
+        child: InputDecorator(
+          decoration: const InputDecoration(
+            labelText: 'Date de mise en service',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          child: Text(_remplacementDateMES.isEmpty ? '—' : _remplacementDateMES),
+        ),
+      ),
     ];
   }
 
@@ -1023,56 +1319,6 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
           controller: _obsTechController,
           maxLines: 3,
           decoration: const InputDecoration(border: OutlineInputBorder()),
-        ),
-      ],
-    );
-  }
-
-  // ---------- Étape 3 ----------
-  Widget _etapePrestationsPhotos() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionTitle('Prestations & fournitures'),
-        const Text(
-          'Désignation et quantité uniquement — la tarification est faite par le bureau.',
-          style: TextStyle(fontSize: 12, color: Colors.grey),
-        ),
-        const SizedBox(height: 8),
-        for (var i = 0; i < _prestas.length; i++)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Row(
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: TextFormField(
-                    initialValue: _prestas[i].designation,
-                    decoration: const InputDecoration(labelText: 'Désignation', isDense: true, border: OutlineInputBorder()),
-                    onChanged: (v) => _prestas[i].designation = v,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextFormField(
-                    initialValue: _prestas[i].quantite,
-                    decoration: const InputDecoration(labelText: 'Qté', isDense: true, border: OutlineInputBorder()),
-                    onChanged: (v) => _prestas[i].quantite = v,
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
-                  onPressed: _prestas.length == 1
-                      ? null
-                      : () => setState(() => _prestas.removeAt(i)),
-                ),
-              ],
-            ),
-          ),
-        TextButton.icon(
-          onPressed: () => setState(() => _prestas.add(Presta())),
-          icon: const Icon(Icons.add),
-          label: const Text('Ajouter une ligne'),
         ),
         _sectionTitle('Photos (${_photos.length}/4)'),
         Wrap(

@@ -52,6 +52,10 @@ class BiPdfGenerator {
           _section('OGEC', bold),
           _kv('Technicien(s)', b.techniciens.join(', ').isEmpty ? '—' : b.techniciens.join(', '), styleBold, style),
           if (b.affaireNumeroDevis.isNotEmpty) _kv('Affaire', b.affaireNumeroDevis, styleBold, style),
+          if (b.affaireNumeroCommandeClient.isNotEmpty)
+            _kv('N° commande client', b.affaireNumeroCommandeClient, styleBold, style),
+          if (b.affaireDateCommandeClient.isNotEmpty)
+            _kv('Date commande client', b.affaireDateCommandeClient, styleBold, style),
           if (b.equipementNom.isNotEmpty) _kv('Équipement', BiFormat.equipementLabel(b), styleBold, style),
           for (final ligne in _lignesDates(b)) _kv(ligne.key, ligne.value, styleBold, style),
           if (b.numeroDevis.isNotEmpty) _kv('N° devis lié', b.numeroDevis, styleBold, style),

@@ -15,6 +15,13 @@ class ClientListScreen extends StatefulWidget {
   /// exactement (ex: liste des sites d'un client donné, regroupement
   /// GMAO Client → Site).
   final String? filterNom;
+
+  /// Si fourni, ne montre que les clients/sites dont l'id figure dans cet
+  /// ensemble (ex: Travaux Clients ne propose, pour un client multi-sites,
+  /// que les sites ayant déjà une affaire de la nature en cours — sans ce
+  /// filtre, tous les sites du client apparaîtraient ici même ceux sans
+  /// affaire correspondante, menant à un écran suivant vide).
+  final Set<String>? filterIds;
   final String title;
   final Color color;
 
@@ -37,6 +44,7 @@ class ClientListScreen extends StatefulWidget {
     super.key,
     this.filterHorsContrat,
     this.filterNom,
+    this.filterIds,
     this.title = 'Répertoire Clients',
     this.color = Colors.green,
     this.onClientTap,
@@ -119,6 +127,9 @@ class _ClientListScreenState extends State<ClientListScreen> {
               return false;
             }
             if (widget.filterNom != null && client.nom != widget.filterNom) {
+              return false;
+            }
+            if (widget.filterIds != null && !widget.filterIds!.contains(client.id)) {
               return false;
             }
             final query = _searchQuery.toLowerCase();

@@ -104,6 +104,8 @@ class BonIntervention {
   // qui n'a jamais de devis (voir Poles.avecAffaire).
   String affaireId;
   String affaireNumeroDevis;
+  String affaireNumeroCommandeClient;
+  String affaireDateCommandeClient;
 
   // Pôle "Remplacement à l'identique" uniquement — nouveau matériel
   // posé à la place de l'existant, écrase les champs correspondants de
@@ -178,6 +180,8 @@ class BonIntervention {
     this.equipementLocalisation = '',
     this.affaireId = '',
     this.affaireNumeroDevis = '',
+    this.affaireNumeroCommandeClient = '',
+    this.affaireDateCommandeClient = '',
     this.remplacementMarque = '',
     this.remplacementReferenceUInt = '',
     this.remplacementNumSerieUInt = '',
@@ -238,6 +242,8 @@ class BonIntervention {
       equipementLocalisation: d['equipementLocalisation'] ?? '',
       affaireId: d['affaireId'] ?? '',
       affaireNumeroDevis: d['affaireNumeroDevis'] ?? '',
+      affaireNumeroCommandeClient: d['affaireNumeroCommandeClient'] ?? '',
+      affaireDateCommandeClient: d['affaireDateCommandeClient'] ?? '',
       remplacementMarque: d['remplacementMarque'] ?? '',
       remplacementReferenceUInt: d['remplacementReferenceUInt'] ?? '',
       remplacementNumSerieUInt: d['remplacementNumSerieUInt'] ?? '',
@@ -299,6 +305,8 @@ class BonIntervention {
     'equipementLocalisation': equipementLocalisation,
     'affaireId': affaireId,
     'affaireNumeroDevis': affaireNumeroDevis,
+    'affaireNumeroCommandeClient': affaireNumeroCommandeClient,
+    'affaireDateCommandeClient': affaireDateCommandeClient,
     'remplacementMarque': remplacementMarque,
     'remplacementReferenceUInt': remplacementReferenceUInt,
     'remplacementNumSerieUInt': remplacementNumSerieUInt,

@@ -5,7 +5,6 @@ import '../../../core/auth/admin_google_session.dart';
 import '../../../core/services/user_service.dart';
 import '../../gmao/equipements/equipement_model.dart';
 import '../../gmao/gmao_database_service.dart';
-import '../../gmao/types_equipement/type_equipement_model.dart';
 import '../data/bi_constants.dart';
 import '../data/bi_format.dart';
 import '../data/bi_model.dart';
@@ -37,14 +36,6 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
   final GmaoDatabaseService _gmaoDb = GmaoDatabaseService();
   bool _validationEnCours = false;
   bool _pdfEnCours = false;
-
-  // Petits travaux · Installation uniquement — le BI ne collecte encore
-  // aucune info sur le nouveau matériel (voir Étape B), le bureau les
-  // saisit ici juste avant de valider, pour créer une fiche minimale
-  // dans le parc GMAO plutôt que rien du tout.
-  final _installationNomController = TextEditingController();
-  final _installationLocalisationController = TextEditingController();
-  String? _installationTypeEquipementId;
 
   Future<void> _voirPdf(BonIntervention b) async {
     setState(() => _pdfEnCours = true);
@@ -129,8 +120,6 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
       _noteInterneController.dispose();
       _emailController.dispose();
     }
-    _installationNomController.dispose();
-    _installationLocalisationController.dispose();
     super.dispose();
   }
 
@@ -169,7 +158,10 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
   bool _peutValider(BonIntervention original) {
     if (!_emailValide) return false;
     if (original.pole == Poles.installationNeuve) {
-      return _installationNomController.text.trim().isNotEmpty && _installationTypeEquipementId != null;
+      // Normalement déjà garanti côté technicien (voir
+      // Poles.avecNouvelEquipement dans l'assistant BI) — filet de
+      // sécurité pour un bon plus ancien qui n'en disposerait pas.
+      return original.equipementNom.trim().isNotEmpty;
     }
     return true;
   }
@@ -212,16 +204,26 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
         if (data.isNotEmpty) await _gmaoDb.updateEquipement(bi.equipementId, data);
         break;
       case Poles.installationNeuve:
-        if (_installationTypeEquipementId == null || _installationNomController.text.trim().isEmpty) return;
+        if (bi.equipementNom.trim().isEmpty) return;
+        final champsEnTete = <String, dynamic>{};
+        if (bi.remplacementMarque.isNotEmpty) champsEnTete['marque'] = bi.remplacementMarque;
+        if (bi.remplacementReferenceUInt.isNotEmpty) champsEnTete['referenceUInt'] = bi.remplacementReferenceUInt;
+        if (bi.remplacementNumSerieUInt.isNotEmpty) champsEnTete['numSerieUInt'] = bi.remplacementNumSerieUInt;
+        if (bi.remplacementReferenceUExt.isNotEmpty) champsEnTete['referenceUExt'] = bi.remplacementReferenceUExt;
+        if (bi.remplacementNumSerieUExt.isNotEmpty) champsEnTete['numSerieUExt'] = bi.remplacementNumSerieUExt;
+        if (bi.remplacementDateMES.isNotEmpty) champsEnTete['dateMES'] = bi.remplacementDateMES;
         await _gmaoDb.addEquipement(
           EquipementModel(
             id: '',
             clientId: bi.clientId,
-            typeEquipementId: _installationTypeEquipementId!,
-            nom: _installationNomController.text.trim(),
-            localisation: _installationLocalisationController.text.trim(),
-            horsContrat: !bi.horsContrat,
-            remarqueTechnicien: 'Installé le $date via ${bi.numero} : ${bi.compteRendu}',
+            typeEquipementId: biInstallationTypeEquipementId,
+            nom: bi.equipementNom,
+            localisation: bi.equipementLocalisation,
+            groupe: bi.equipementGroupe,
+            horsContrat: bi.horsContrat,
+            champsEnTete: champsEnTete,
+            remarqueTechnicien:
+                'Installé le $date via ${bi.numero} : ${bi.compteRendu} — Hors contrat d\'entretien.',
           ),
         );
         break;
@@ -274,6 +276,8 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
         equipementLocalisation: original.equipementLocalisation,
         affaireId: original.affaireId,
         affaireNumeroDevis: original.affaireNumeroDevis,
+        affaireNumeroCommandeClient: original.affaireNumeroCommandeClient,
+        affaireDateCommandeClient: original.affaireDateCommandeClient,
         remplacementMarque: original.remplacementMarque,
         remplacementReferenceUInt: original.remplacementReferenceUInt,
         remplacementNumSerieUInt: original.remplacementNumSerieUInt,
@@ -448,6 +452,8 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
         _infoLigne('Pôle', '${b.pole} · ${Poles.label(b.pole)}'),
         _infoLigne('Technicien(s)', b.techniciens.join(', ')),
         if (b.affaireNumeroDevis.isNotEmpty) _infoLigne('Affaire', b.affaireNumeroDevis),
+        if (b.affaireNumeroCommandeClient.isNotEmpty) _infoLigne('N° commande client', b.affaireNumeroCommandeClient),
+        if (b.affaireDateCommandeClient.isNotEmpty) _infoLigne('Date commande client', b.affaireDateCommandeClient),
         if (b.equipementNom.isNotEmpty) _infoLigne('Équipement', BiFormat.equipementLabel(b)),
         ..._lignesDates(b).map((e) => _infoLigne(e.key, e.value)),
       ]),
@@ -483,7 +489,7 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
           _infoLigne('Nom', original.equipementNom),
           if (original.equipementGroupe.isNotEmpty) _infoLigne('Groupe', original.equipementGroupe),
           if (original.equipementLocalisation.isNotEmpty) _infoLigne('Localisation', original.equipementLocalisation),
-          if (original.pole == Poles.remplacementIdentique) ...[
+          if (original.pole == Poles.remplacementIdentique || original.pole == Poles.installationNeuve) ...[
             if (original.remplacementMarque.isNotEmpty) _infoLigne('Marque', original.remplacementMarque),
             if (original.remplacementReferenceUInt.isNotEmpty)
               _infoLigne('Réf. unité intérieure', original.remplacementReferenceUInt),
@@ -583,37 +589,6 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
           onChanged: (_) => setState(() {}),
         ),
       ]),
-      if (original.pole == Poles.installationNeuve)
-        _sectionCard('Nouveau matériel installé — fiche GMAO', [
-          Text(
-            'Le bon ne décrit pas le matériel posé : saisis ici de quoi créer sa fiche dans le parc.',
-            style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-          ),
-          const SizedBox(height: 8),
-          TextFormField(
-            controller: _installationNomController,
-            decoration: const InputDecoration(labelText: 'Nom de l\'équipement', border: OutlineInputBorder(), isDense: true),
-            onChanged: (_) => setState(() {}),
-          ),
-          const SizedBox(height: 10),
-          StreamBuilder<List<TypeEquipementModel>>(
-            stream: _gmaoDb.getTypesEquipement(),
-            builder: (context, snapshot) {
-              final types = snapshot.data ?? const <TypeEquipementModel>[];
-              return DropdownButtonFormField<String>(
-                initialValue: _installationTypeEquipementId,
-                decoration: const InputDecoration(labelText: 'Famille d\'équipement', border: OutlineInputBorder(), isDense: true),
-                items: types.map((t) => DropdownMenuItem(value: t.id, child: Text(t.nom))).toList(),
-                onChanged: (v) => setState(() => _installationTypeEquipementId = v),
-              );
-            },
-          ),
-          const SizedBox(height: 10),
-          TextFormField(
-            controller: _installationLocalisationController,
-            decoration: const InputDecoration(labelText: 'Localisation (optionnel)', border: OutlineInputBorder(), isDense: true),
-          ),
-        ]),
       _sectionCard('Prestations & fournitures — prix unitaires HT (bureau)', [
         for (var i = 0; i < _prestas.length; i++) _lignePrestaBureau(i),
         TextButton.icon(
