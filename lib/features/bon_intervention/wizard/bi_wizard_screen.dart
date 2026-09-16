@@ -59,12 +59,17 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   // Devis (Affaire) et équipement — pertinents selon le pôle choisi,
   // voir Poles.avecAffaire/avecEquipementObligatoire.
   AffaireModel? _affaire;
-  final _remplacementMarqueController = TextEditingController();
-  final _remplacementRefUIntController = TextEditingController();
-  final _remplacementNumSerieUIntController = TextEditingController();
-  final _remplacementRefUExtController = TextEditingController();
-  final _remplacementNumSerieUExtController = TextEditingController();
-  String _remplacementDateMES = BiFormat.today();
+
+  // Familles du Référentiel équipements (GMAO) — chargées une fois, pour
+  // le choix (Installation neuve) ou la résolution automatique
+  // (Remplacement à l'identique, depuis l'équipement choisi) de la
+  // famille active, dont les champs déterminent dynamiquement le
+  // formulaire matériel ci-dessous (voir Poles.avecNouvelEquipement /
+  // _pole == remplacementIdentique).
+  List<TypeEquipementModel> _typesEquipement = [];
+  TypeEquipementModel? _typeActif;
+  final Map<String, dynamic> _materielChampsEnTete = {};
+  final Map<String, TextEditingController> _materielControllers = {};
 
   // Pôle Installation neuve uniquement — identité du nouveau matériel
   // (pas d'équipement existant à choisir, voir Poles.avecNouvelEquipement).
@@ -116,6 +121,12 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   void initState() {
     super.initState();
     _preremplirTechnicien();
+    _chargerTypesEquipement();
+  }
+
+  Future<void> _chargerTypesEquipement() async {
+    final types = await _gmaoDb.getTypesEquipement().first;
+    if (mounted) setState(() => _typesEquipement = types);
   }
 
   Future<void> _preremplirTechnicien() async {
@@ -132,11 +143,9 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   @override
   void dispose() {
     _emailController.dispose();
-    _remplacementMarqueController.dispose();
-    _remplacementRefUIntController.dispose();
-    _remplacementNumSerieUIntController.dispose();
-    _remplacementRefUExtController.dispose();
-    _remplacementNumSerieUExtController.dispose();
+    for (final c in _materielControllers.values) {
+      c.dispose();
+    }
     _installationNomController.dispose();
     _installationLocalisationController.dispose();
     _installationGroupeController.dispose();
@@ -213,16 +222,41 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   }
 
   void _effacerRemplacement() {
-    _remplacementMarqueController.clear();
-    _remplacementRefUIntController.clear();
-    _remplacementNumSerieUIntController.clear();
-    _remplacementRefUExtController.clear();
-    _remplacementNumSerieUExtController.clear();
-    _remplacementDateMES = BiFormat.today();
     _installationNomController.clear();
     _installationLocalisationController.clear();
     _installationGroupeController.clear();
     _equipementLibreController.clear();
+    _typeActif = null;
+    _reconstruireMateriel(null);
+  }
+
+  /// Champs de la famille pertinents pour le BI — exclut nom
+  /// technicien/fréquence/date interv. prévue (voir champsMaterielExclusBI).
+  List<ChampEnTete> _champsPertinents(TypeEquipementModel? type) =>
+      (type?.champsEnTeteSupplementaires ?? const [])
+          .where((c) => !champsMaterielExclusBI.contains(c.cle))
+          .toList();
+
+  /// Reconstruit les contrôleurs des champs spécifiques à la famille
+  /// active — même principe que AjouterEquipementScreen : les champs
+  /// changent avec la famille (Installation neuve : choisie par le
+  /// technicien ; Remplacement à l'identique : celle de l'équipement
+  /// choisi), donc les anciens contrôleurs ne correspondent plus.
+  void _reconstruireMateriel(TypeEquipementModel? type) {
+    for (final c in _materielControllers.values) {
+      c.dispose();
+    }
+    _materielControllers.clear();
+    _materielChampsEnTete.clear();
+    for (final champ in _champsPertinents(type)) {
+      if (champ.options.isEmpty) {
+        // Date de mise en service : quasi toujours le jour de
+        // l'intervention — pré-remplie mais modifiable.
+        final valeurDefaut = champ.cle == 'dateMES' ? BiFormat.today() : '';
+        _materielControllers[champ.cle] = TextEditingController(text: valeurDefaut);
+        if (valeurDefaut.isNotEmpty) _materielChampsEnTete[champ.cle] = valeurDefaut;
+      }
+    }
   }
 
   void _preremplirDepuisSite(ClientModel site) {
@@ -341,7 +375,13 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       context,
       MaterialPageRoute(builder: (context) => BiEquipementPickerScreen(client: client)),
     );
-    if (eq != null && mounted) setState(() => _equipement = eq);
+    if (eq != null && mounted) {
+      setState(() {
+        _equipement = eq;
+        _typeActif = _typesEquipement.where((t) => t.id == eq.typeEquipementId).firstOrNull;
+        _reconstruireMateriel(_typeActif);
+      });
+    }
   }
 
   Future<void> _choisirTechniciens() async {
@@ -453,26 +493,29 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   /// Client obligatoire, puis devis (Affaire) et équipement du parc
   /// GMAO selon ce qu'exige le pôle choisi (voir Poles.avecAffaire/
   /// avecEquipementObligatoire).
-  /// Marque/référence/n° série/date MES — exigés pour "Remplacement à
-  /// l'identique" (nouveau matériel posé) et "Installation neuve"
-  /// (matériel installé), jamais pour les autres pôles.
-  bool get _remplacementFieldsComplets =>
-      _remplacementMarqueController.text.trim().isNotEmpty &&
-      _remplacementRefUIntController.text.trim().isNotEmpty &&
-      _remplacementNumSerieUIntController.text.trim().isNotEmpty &&
-      _remplacementRefUExtController.text.trim().isNotEmpty &&
-      _remplacementNumSerieUExtController.text.trim().isNotEmpty &&
-      _remplacementDateMES.isNotEmpty;
+  /// Tous les champs de la famille active renseignés — exigé pour
+  /// "Remplacement à l'identique" (famille de l'équipement choisi) et
+  /// "Installation neuve" (famille choisie par le technicien), jamais
+  /// pour les autres pôles. Aucune famille active = incomplet.
+  bool get _materielComplet {
+    final type = _typeActif;
+    if (type == null) return false;
+    for (final champ in _champsPertinents(type)) {
+      final v = _materielChampsEnTete[champ.cle]?.toString().trim() ?? '';
+      if (v.isEmpty) return false;
+    }
+    return true;
+  }
 
   bool get _peutAvancerEtapeClient {
     if (_client == null) return false;
     if (Poles.avecAffaire(_pole) && _affaire == null) return false;
     if (Poles.avecEquipementObligatoire(_pole) && _equipement == null) return false;
-    if (_pole == Poles.remplacementIdentique && !_remplacementFieldsComplets) return false;
+    if (_pole == Poles.remplacementIdentique && !_materielComplet) return false;
     if (Poles.avecNouvelEquipement(_pole)) {
       if (_installationNomController.text.trim().isEmpty) return false;
       if (_installationLocalisationController.text.trim().isEmpty) return false;
-      if (!_remplacementFieldsComplets) return false;
+      if (!_materielComplet) return false;
     }
     return true;
   }
@@ -539,12 +582,8 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       affaireNumeroDevis: _affaire?.numeroDevis ?? '',
       affaireNumeroCommandeClient: _affaire?.numeroCommandeClient ?? '',
       affaireDateCommandeClient: _affaire?.dateCommandeClient ?? '',
-      remplacementMarque: _remplacementMarqueController.text.trim(),
-      remplacementReferenceUInt: _remplacementRefUIntController.text.trim(),
-      remplacementNumSerieUInt: _remplacementNumSerieUIntController.text.trim(),
-      remplacementReferenceUExt: _remplacementRefUExtController.text.trim(),
-      remplacementNumSerieUExt: _remplacementNumSerieUExtController.text.trim(),
-      remplacementDateMES: _remplacementDateMES,
+      materielTypeEquipementId: _typeActif?.id ?? '',
+      materielChampsEnTete: Map<String, dynamic>.from(_materielChampsEnTete),
       dateDebut: _dateDebut,
       dateFin: _dateFin,
       dateIntervention: _dateIntervention,
@@ -587,7 +626,15 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
     setState(() => _enregistrementEnCours = true);
     try {
       await _assurerNumero();
-      await _biService.saveBI(_construireBI(Statuts.brouillon));
+      // Les signatures déjà tracées ne doivent pas se perdre si le
+      // technicien enregistre un brouillon avant de transmettre (ex:
+      // signataire pas encore rempli) — même capture que _transmettreAuBureau.
+      final sigTechBytes = await _sigTechController.toPngBytes();
+      final sigClientBytes = await _sigClientController.toPngBytes();
+      final bi = _construireBI(Statuts.brouillon);
+      bi.sigTech = sigTechBytes != null ? base64Encode(sigTechBytes) : '';
+      bi.sigClient = sigClientBytes != null ? base64Encode(sigClientBytes) : '';
+      await _biService.saveBI(bi);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Brouillon enregistré')),
@@ -1045,19 +1092,11 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
           ),
         if (_equipement != null && _pole == Poles.remplacementIdentique) ...[
           _sectionTitle('Nouveau matériel'),
-          ..._blocNouveauMateriel(),
+          ..._blocChampsMateriel(),
         ],
       ],
       if (Poles.avecNouvelEquipement(_pole)) ...[
         _sectionTitle('Nouvel équipement à installer'),
-        const Padding(
-          padding: EdgeInsets.only(bottom: 8),
-          child: Text(
-            'Seul le climatiseur autonome (Split-Système) est structuré pour le moment — '
-            'les autres familles suivront.',
-            style: TextStyle(fontSize: 12, color: Colors.grey),
-          ),
-        ),
         TextField(
           controller: _installationNomController,
           decoration: const InputDecoration(labelText: 'Nom de l\'équipement', border: OutlineInputBorder(), isDense: true),
@@ -1075,8 +1114,21 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
           decoration: const InputDecoration(labelText: 'Groupe (optionnel)', border: OutlineInputBorder(), isDense: true),
         ),
         const SizedBox(height: 10),
-        _sectionTitle('Caractéristiques du matériel'),
-        ..._blocNouveauMateriel(),
+        DropdownButtonFormField<TypeEquipementModel>(
+          initialValue: _typeActif,
+          isExpanded: true,
+          decoration: const InputDecoration(labelText: 'Famille d\'équipement', border: OutlineInputBorder(), isDense: true),
+          items: _typesEquipement.map((t) => DropdownMenuItem(value: t, child: Text(t.nom))).toList(),
+          onChanged: (t) => setState(() {
+            _typeActif = t;
+            _reconstruireMateriel(t);
+          }),
+        ),
+        if (_typeActif != null) ...[
+          const SizedBox(height: 10),
+          _sectionTitle('Caractéristiques du matériel'),
+          ..._blocChampsMateriel(),
+        ],
       ],
       if (Poles.avecEquipementOptionnel(_pole)) ...[
         _sectionTitle('Équipement (optionnel)'),
@@ -1117,92 +1169,41 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
     ];
   }
 
-  /// Marque/référence/n° série unité int./ext./date MES — champs MOD
-  /// SPLIT partagés par "Remplacement à l'identique" (nouveau matériel
-  /// posé) et "Installation neuve" (matériel installé), voir
-  /// Poles.avecNouvelEquipement.
-  List<Widget> _blocNouveauMateriel() {
+  /// Champs de la famille active (voir _typeActif/_reconstruireMateriel)
+  /// — génériques, même mécanisme que AjouterEquipementScreen côté GMAO :
+  /// aucun champ codé en dur, la liste vient du Référentiel équipements.
+  List<Widget> _blocChampsMateriel() {
+    final type = _typeActif;
+    if (type == null) return [];
     return [
-      TextField(
-        controller: _remplacementMarqueController,
-        decoration: const InputDecoration(labelText: 'Marque', border: OutlineInputBorder(), isDense: true),
-        onChanged: (_) => setState(() {}),
-      ),
-      const SizedBox(height: 10),
-      Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _remplacementRefUIntController,
-              decoration: const InputDecoration(
-                labelText: 'Référence unité intérieure',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
-              onChanged: (_) => setState(() {}),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: TextField(
-              controller: _remplacementNumSerieUIntController,
-              decoration: const InputDecoration(
-                labelText: 'N° série unité intérieure',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
-              onChanged: (_) => setState(() {}),
-            ),
-          ),
-        ],
-      ),
-      const SizedBox(height: 10),
-      Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _remplacementRefUExtController,
-              decoration: const InputDecoration(
-                labelText: 'Référence unité extérieure',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
-              onChanged: (_) => setState(() {}),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: TextField(
-              controller: _remplacementNumSerieUExtController,
-              decoration: const InputDecoration(
-                labelText: 'N° série unité extérieure',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
-              onChanged: (_) => setState(() {}),
-            ),
-          ),
-        ],
-      ),
-      const SizedBox(height: 10),
-      InkWell(
-        onTap: () => _choisirDate((d) {
-          setState(() {
-            _remplacementDateMES =
-                '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
-          });
-          return true;
-        }),
-        child: InputDecorator(
-          decoration: const InputDecoration(
-            labelText: 'Date de mise en service',
-            border: OutlineInputBorder(),
-            isDense: true,
-          ),
-          child: Text(_remplacementDateMES.isEmpty ? '—' : _remplacementDateMES),
-        ),
-      ),
+      for (final champ in _champsPertinents(type)) ...[
+        _champMateriel(champ),
+        const SizedBox(height: 10),
+      ],
     ];
+  }
+
+  Widget _champMateriel(ChampEnTete champ) {
+    if (champ.options.isEmpty) {
+      return TextField(
+        controller: _materielControllers[champ.cle],
+        keyboardType: champ.numerique ? const TextInputType.numberWithOptions(decimal: true) : TextInputType.text,
+        decoration: InputDecoration(
+          labelText: champ.label,
+          suffixText: champ.unite.isEmpty ? null : champ.unite,
+          border: const OutlineInputBorder(),
+          isDense: true,
+        ),
+        onChanged: (v) => setState(() => _materielChampsEnTete[champ.cle] = v),
+      );
+    }
+    return DropdownButtonFormField<String>(
+      initialValue: _materielChampsEnTete[champ.cle] as String?,
+      isExpanded: true,
+      decoration: InputDecoration(labelText: champ.label, border: const OutlineInputBorder(), isDense: true),
+      items: champ.options.map((o) => DropdownMenuItem(value: o, child: Text(o))).toList(),
+      onChanged: (v) => setState(() => _materielChampsEnTete[champ.cle] = v),
+    );
   }
 
   // ---------- Étape 1 ----------

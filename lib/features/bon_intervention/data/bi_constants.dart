@@ -87,13 +87,6 @@ class Poles {
       code == reparationEquipement || code == reparationDiverse || code == depannage;
 }
 
-/// Seule famille du référentiel `types_equipement` structurée à ce jour
-/// (marque/référence/n° série/date MES) — voir GmaoDatabaseService,
-/// `semerFamillesInitiales()`. L'Installation neuve du Bon d'intervention
-/// s'y limite donc pour l'instant ; les autres familles (groupe, VRV...)
-/// suivront quand leurs fiches seront structurées à leur tour.
-const String biInstallationTypeEquipementId = 'mod_split';
-
 /// Statuts du workflow d'un bon d'intervention.
 class Statuts {
   static const brouillon = 'brouillon';
@@ -115,6 +108,18 @@ class Statuts {
     _ => s,
   };
 }
+
+/// Clés de `champsEnTeteSupplementaires` jamais proposées au technicien
+/// ni affichées côté bureau dans le Bon d'intervention (Installation
+/// neuve/Remplacement à l'identique) : le nom du technicien est déjà
+/// connu (voir Techniciens intervenus) et la fréquence/date
+/// d'intervention prévue se calculent automatiquement (voir
+/// ReleveService), jamais saisies à la main.
+const Set<String> champsMaterielExclusBI = {
+  'nomTech',
+  'freqEntretienAnnuelle',
+  'dateIntervPrevue',
+};
 
 const Map<String, String> photoTypes = {
   'avant': 'Avant intervention',

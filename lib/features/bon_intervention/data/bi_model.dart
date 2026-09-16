@@ -107,16 +107,15 @@ class BonIntervention {
   String affaireNumeroCommandeClient;
   String affaireDateCommandeClient;
 
-  // Pôle "Remplacement à l'identique" uniquement — nouveau matériel
-  // posé à la place de l'existant, écrase les champs correspondants de
-  // la fiche équipement à la validation bureau (voir
-  // GmaoDatabaseService).
-  String remplacementMarque;
-  String remplacementReferenceUInt;
-  String remplacementNumSerieUInt;
-  String remplacementReferenceUExt;
-  String remplacementNumSerieUExt;
-  String remplacementDateMES;
+  // Pôles "Installation neuve"/"Remplacement à l'identique" uniquement —
+  // caractéristiques du matériel posé, génériques selon la famille
+  // d'équipement choisie/existante (voir types_equipement,
+  // TypeEquipementModel.champsEnTeteSupplementaires) plutôt que des
+  // champs fixes : ce n'est plus systématiquement un climatiseur Split.
+  // Écrasent/peuplent `champsEnTete` de la fiche équipement à la
+  // validation bureau (voir GmaoDatabaseService).
+  String materielTypeEquipementId;
+  Map<String, dynamic> materielChampsEnTete;
 
   // Dates — règles par pôle
   String dateDebut; // pôle 20
@@ -182,12 +181,8 @@ class BonIntervention {
     this.affaireNumeroDevis = '',
     this.affaireNumeroCommandeClient = '',
     this.affaireDateCommandeClient = '',
-    this.remplacementMarque = '',
-    this.remplacementReferenceUInt = '',
-    this.remplacementNumSerieUInt = '',
-    this.remplacementReferenceUExt = '',
-    this.remplacementNumSerieUExt = '',
-    this.remplacementDateMES = '',
+    this.materielTypeEquipementId = '',
+    Map<String, dynamic>? materielChampsEnTete,
     this.dateDebut = '',
     this.dateFin = '',
     this.dateIntervention = '',
@@ -219,6 +214,7 @@ class BonIntervention {
   }) : techniciens = techniciens ?? [],
        prestas = prestas ?? [Presta()],
        photos = photos ?? [],
+       materielChampsEnTete = materielChampsEnTete ?? {},
        history = history ?? [];
 
   factory BonIntervention.fromFirestore(DocumentSnapshot doc) {
@@ -244,12 +240,8 @@ class BonIntervention {
       affaireNumeroDevis: d['affaireNumeroDevis'] ?? '',
       affaireNumeroCommandeClient: d['affaireNumeroCommandeClient'] ?? '',
       affaireDateCommandeClient: d['affaireDateCommandeClient'] ?? '',
-      remplacementMarque: d['remplacementMarque'] ?? '',
-      remplacementReferenceUInt: d['remplacementReferenceUInt'] ?? '',
-      remplacementNumSerieUInt: d['remplacementNumSerieUInt'] ?? '',
-      remplacementReferenceUExt: d['remplacementReferenceUExt'] ?? '',
-      remplacementNumSerieUExt: d['remplacementNumSerieUExt'] ?? '',
-      remplacementDateMES: d['remplacementDateMES'] ?? '',
+      materielTypeEquipementId: d['materielTypeEquipementId'] ?? '',
+      materielChampsEnTete: Map<String, dynamic>.from(d['materielChampsEnTete'] ?? {}),
       dateDebut: d['dateDebut'] ?? '',
       dateFin: d['dateFin'] ?? '',
       dateIntervention: d['dateIntervention'] ?? '',
@@ -307,12 +299,8 @@ class BonIntervention {
     'affaireNumeroDevis': affaireNumeroDevis,
     'affaireNumeroCommandeClient': affaireNumeroCommandeClient,
     'affaireDateCommandeClient': affaireDateCommandeClient,
-    'remplacementMarque': remplacementMarque,
-    'remplacementReferenceUInt': remplacementReferenceUInt,
-    'remplacementNumSerieUInt': remplacementNumSerieUInt,
-    'remplacementReferenceUExt': remplacementReferenceUExt,
-    'remplacementNumSerieUExt': remplacementNumSerieUExt,
-    'remplacementDateMES': remplacementDateMES,
+    'materielTypeEquipementId': materielTypeEquipementId,
+    'materielChampsEnTete': materielChampsEnTete,
     'dateDebut': dateDebut,
     'dateFin': dateFin,
     'dateIntervention': dateIntervention,

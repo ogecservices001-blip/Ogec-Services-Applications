@@ -5,6 +5,7 @@ import '../../../core/auth/admin_google_session.dart';
 import '../../../core/services/user_service.dart';
 import '../../gmao/equipements/equipement_model.dart';
 import '../../gmao/gmao_database_service.dart';
+import '../../gmao/types_equipement/type_equipement_model.dart';
 import '../data/bi_constants.dart';
 import '../data/bi_format.dart';
 import '../data/bi_model.dart';
@@ -90,7 +91,6 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
   late TextEditingController _obsTechController;
   late TextEditingController _noteInterneController;
   late TextEditingController _emailController;
-  late List<Presta> _prestas;
 
   void _initierCorrection(BonIntervention b) {
     if (_initialise) return;
@@ -107,9 +107,6 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
     _obsTechController = TextEditingController(text: b.obsTech);
     _noteInterneController = TextEditingController(text: b.noteInterne);
     _emailController = TextEditingController(text: b.email);
-    _prestas = b.prestas.isEmpty
-        ? [Presta()]
-        : b.prestas.map((p) => Presta(designation: p.designation, quantite: p.quantite, pu: p.pu)).toList();
   }
 
   @override
@@ -161,7 +158,8 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
       // Normalement déjà garanti côté technicien (voir
       // Poles.avecNouvelEquipement dans l'assistant BI) — filet de
       // sécurité pour un bon plus ancien qui n'en disposerait pas.
-      return original.equipementNom.trim().isNotEmpty;
+      return original.equipementNom.trim().isNotEmpty &&
+          original.materielTypeEquipementId.isNotEmpty;
     }
     return true;
   }
@@ -194,29 +192,29 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
           bi.equipementId,
           'Remplacé le $date via ${bi.numero} : ${bi.compteRendu}',
         );
-        final data = <String, dynamic>{};
-        if (bi.remplacementMarque.isNotEmpty) data['champsEnTete.marque'] = bi.remplacementMarque;
-        if (bi.remplacementReferenceUInt.isNotEmpty) data['champsEnTete.referenceUInt'] = bi.remplacementReferenceUInt;
-        if (bi.remplacementNumSerieUInt.isNotEmpty) data['champsEnTete.numSerieUInt'] = bi.remplacementNumSerieUInt;
-        if (bi.remplacementReferenceUExt.isNotEmpty) data['champsEnTete.referenceUExt'] = bi.remplacementReferenceUExt;
-        if (bi.remplacementNumSerieUExt.isNotEmpty) data['champsEnTete.numSerieUExt'] = bi.remplacementNumSerieUExt;
-        if (bi.remplacementDateMES.isNotEmpty) data['champsEnTete.dateMES'] = bi.remplacementDateMES;
+        final data = <String, dynamic>{
+          for (final entry in bi.materielChampsEnTete.entries)
+            if (!champsMaterielExclusBI.contains(entry.key) &&
+                entry.value != null &&
+                entry.value.toString().trim().isNotEmpty)
+              'champsEnTete.${entry.key}': entry.value,
+        };
         if (data.isNotEmpty) await _gmaoDb.updateEquipement(bi.equipementId, data);
         break;
       case Poles.installationNeuve:
-        if (bi.equipementNom.trim().isEmpty) return;
-        final champsEnTete = <String, dynamic>{};
-        if (bi.remplacementMarque.isNotEmpty) champsEnTete['marque'] = bi.remplacementMarque;
-        if (bi.remplacementReferenceUInt.isNotEmpty) champsEnTete['referenceUInt'] = bi.remplacementReferenceUInt;
-        if (bi.remplacementNumSerieUInt.isNotEmpty) champsEnTete['numSerieUInt'] = bi.remplacementNumSerieUInt;
-        if (bi.remplacementReferenceUExt.isNotEmpty) champsEnTete['referenceUExt'] = bi.remplacementReferenceUExt;
-        if (bi.remplacementNumSerieUExt.isNotEmpty) champsEnTete['numSerieUExt'] = bi.remplacementNumSerieUExt;
-        if (bi.remplacementDateMES.isNotEmpty) champsEnTete['dateMES'] = bi.remplacementDateMES;
+        if (bi.equipementNom.trim().isEmpty || bi.materielTypeEquipementId.isEmpty) return;
+        final champsEnTete = <String, dynamic>{
+          for (final entry in bi.materielChampsEnTete.entries)
+            if (!champsMaterielExclusBI.contains(entry.key) &&
+                entry.value != null &&
+                entry.value.toString().trim().isNotEmpty)
+              entry.key: entry.value,
+        };
         await _gmaoDb.addEquipement(
           EquipementModel(
             id: '',
             clientId: bi.clientId,
-            typeEquipementId: biInstallationTypeEquipementId,
+            typeEquipementId: bi.materielTypeEquipementId,
             nom: bi.equipementNom,
             localisation: bi.equipementLocalisation,
             groupe: bi.equipementGroupe,
@@ -252,8 +250,6 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
       );
       diff('Temps passé', original.tempsPasse, _tempsPasse);
       diff('Compte rendu', original.compteRendu, _compteRenduController.text.trim());
-      final prestasFiltrees = _prestas.where((p) => p.designation.trim().isNotEmpty).toList();
-      diff('Prestations & fournitures', BiFormat.prestaSummary(original.prestas), BiFormat.prestaSummary(prestasFiltrees));
       diff('Email client', original.email, _emailController.text.trim());
       diff('Remarque interne', original.noteInterne, _noteInterneController.text.trim());
 
@@ -278,12 +274,8 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
         affaireNumeroDevis: original.affaireNumeroDevis,
         affaireNumeroCommandeClient: original.affaireNumeroCommandeClient,
         affaireDateCommandeClient: original.affaireDateCommandeClient,
-        remplacementMarque: original.remplacementMarque,
-        remplacementReferenceUInt: original.remplacementReferenceUInt,
-        remplacementNumSerieUInt: original.remplacementNumSerieUInt,
-        remplacementReferenceUExt: original.remplacementReferenceUExt,
-        remplacementNumSerieUExt: original.remplacementNumSerieUExt,
-        remplacementDateMES: original.remplacementDateMES,
+        materielTypeEquipementId: original.materielTypeEquipementId,
+        materielChampsEnTete: original.materielChampsEnTete,
         dateDebut: _dateDebut,
         dateFin: _dateFin,
         dateIntervention: _dateIntervention,
@@ -295,7 +287,7 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
         compteRendu: _compteRenduController.text.trim(),
         obsTech: _obsTechController.text.trim(),
         obsClient: original.obsClient,
-        prestas: prestasFiltrees,
+        prestas: original.prestas,
         photos: original.photos,
         sigTech: original.sigTech,
         sigClient: original.sigClient,
@@ -489,19 +481,9 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
           _infoLigne('Nom', original.equipementNom),
           if (original.equipementGroupe.isNotEmpty) _infoLigne('Groupe', original.equipementGroupe),
           if (original.equipementLocalisation.isNotEmpty) _infoLigne('Localisation', original.equipementLocalisation),
-          if (original.pole == Poles.remplacementIdentique || original.pole == Poles.installationNeuve) ...[
-            if (original.remplacementMarque.isNotEmpty) _infoLigne('Marque', original.remplacementMarque),
-            if (original.remplacementReferenceUInt.isNotEmpty)
-              _infoLigne('Réf. unité intérieure', original.remplacementReferenceUInt),
-            if (original.remplacementNumSerieUInt.isNotEmpty)
-              _infoLigne('N° série unité intérieure', original.remplacementNumSerieUInt),
-            if (original.remplacementReferenceUExt.isNotEmpty)
-              _infoLigne('Réf. unité extérieure', original.remplacementReferenceUExt),
-            if (original.remplacementNumSerieUExt.isNotEmpty)
-              _infoLigne('N° série unité extérieure', original.remplacementNumSerieUExt),
-            if (original.remplacementDateMES.isNotEmpty)
-              _infoLigne('Date de mise en service', original.remplacementDateMES),
-          ],
+          if ((original.pole == Poles.remplacementIdentique || original.pole == Poles.installationNeuve) &&
+              original.materielChampsEnTete.isNotEmpty)
+            _blocMaterielLectureSeule(original),
         ]),
       _sectionCard('Vérification & correction (bureau)', [
         _deroulantPole(),
@@ -589,21 +571,6 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
           onChanged: (_) => setState(() {}),
         ),
       ]),
-      _sectionCard('Prestations & fournitures — prix unitaires HT (bureau)', [
-        for (var i = 0; i < _prestas.length; i++) _lignePrestaBureau(i),
-        TextButton.icon(
-          onPressed: () => setState(() => _prestas.add(Presta())),
-          icon: const Icon(Icons.add),
-          label: const Text('Ajouter une ligne'),
-        ),
-        Align(
-          alignment: Alignment.centerRight,
-          child: Text(
-            'Total HT : ${BiFormat.totalHT(_prestas) > 0 ? BiFormat.eur(BiFormat.totalHT(_prestas)) : "—"}',
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-          ),
-        ),
-      ]),
       Padding(
         padding: const EdgeInsets.symmetric(vertical: 10),
         child: SizedBox(
@@ -625,57 +592,31 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
     ];
   }
 
-  Widget _lignePrestaBureau(int i) {
-    final p = _prestas[i];
-    final montant = BiFormat.montantLigne(p);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                flex: 3,
-                child: TextFormField(
-                  initialValue: p.designation,
-                  decoration: const InputDecoration(labelText: 'Désignation', isDense: true, border: OutlineInputBorder()),
-                  onChanged: (v) => setState(() => p.designation = v),
-                ),
-              ),
-              const SizedBox(width: 8),
-              SizedBox(
-                width: 60,
-                child: TextFormField(
-                  initialValue: p.quantite,
-                  decoration: const InputDecoration(labelText: 'Qté', isDense: true, border: OutlineInputBorder()),
-                  onChanged: (v) => setState(() => p.quantite = v),
-                ),
-              ),
-              const SizedBox(width: 8),
-              SizedBox(
-                width: 90,
-                child: TextFormField(
-                  initialValue: p.pu,
-                  decoration: const InputDecoration(labelText: 'PU HT €', isDense: true, border: OutlineInputBorder()),
-                  onChanged: (v) => setState(() => p.pu = v),
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.close, color: Colors.red, size: 20),
-                onPressed: () => setState(() {
-                  _prestas.removeAt(i);
-                  if (_prestas.isEmpty) _prestas.add(Presta());
-                }),
-              ),
-            ],
-          ),
-          Text(
-            'Montant : ${montant != null ? BiFormat.eur(montant) : "—"}',
-            style: TextStyle(fontSize: 11, color: biAccent),
-          ),
-        ],
-      ),
+  /// Caractéristiques du matériel (Installation neuve/Remplacement à
+  /// l'identique) — clés génériques (voir BonIntervention.materielChampsEnTete),
+  /// affichées avec le libellé humain de leur famille d'équipement plutôt
+  /// que la clé technique brute.
+  Widget _blocMaterielLectureSeule(BonIntervention original) {
+    return StreamBuilder<List<TypeEquipementModel>>(
+      stream: _gmaoDb.getTypesEquipement(),
+      builder: (context, snapshot) {
+        final type = (snapshot.data ?? const <TypeEquipementModel>[])
+            .where((t) => t.id == original.materielTypeEquipementId)
+            .firstOrNull;
+        final labelParCle = {
+          for (final champ in type?.champsEnTeteSupplementaires ?? const []) champ.cle: champ.label,
+        };
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final entry in original.materielChampsEnTete.entries)
+              if (!champsMaterielExclusBI.contains(entry.key) &&
+                  entry.value != null &&
+                  entry.value.toString().trim().isNotEmpty)
+                _infoLigne(labelParCle[entry.key] ?? entry.key, entry.value.toString()),
+          ],
+        );
+      },
     );
   }
 
