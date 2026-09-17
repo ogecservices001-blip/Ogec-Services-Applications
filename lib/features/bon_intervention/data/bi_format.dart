@@ -145,10 +145,14 @@ class BiFormat {
   /// "Nom - Groupe - Localisation" (segments vides ignorés) — même
   /// format partout où l'équipement du bon est affiché (PDF, écran
   /// bureau), pour ne jamais le composer à deux endroits différemment.
+  /// Installation neuve : la fiche n'existe pas encore dans le parc GMAO
+  /// tant que le bureau ne l'a pas validée — toujours marqué comme tel.
   static String equipementLabel(BonIntervention b) {
-    return [b.equipementNom, b.equipementGroupe, b.equipementLocalisation]
+    final base = [b.equipementNom, b.equipementGroupe, b.equipementLocalisation]
         .where((s) => s.trim().isNotEmpty)
         .join(' - ');
+    if (base.isEmpty) return base;
+    return b.pole == Poles.installationNeuve ? '$base (à confirmer)' : base;
   }
 
   static double totalHT(List<Presta> prestas) => prestas.fold(

@@ -24,7 +24,7 @@ import 'bi_technicien_picker_screen.dart';
 
 const Color biAccent = Colors.deepPurple;
 
-/// Assistant technicien en 5 étapes pour créer un bon d'intervention —
+/// Assistant technicien en 4 étapes pour créer un bon d'intervention —
 /// porté depuis re.ogec.bi (WizardScreens.kt/AppViewModel.kt). Phase 1 :
 /// pas encore de génération PDF ni d'archivage Drive, seulement la
 /// saisie et la transmission au bureau.
@@ -42,7 +42,7 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   final GmaoDatabaseService _gmaoDb = GmaoDatabaseService();
 
   int _etape = 0;
-  static const _totalEtapes = 5;
+  static const _totalEtapes = 4;
   bool _enregistrementEnCours = false;
   bool _apercuEnCours = false;
 
@@ -76,14 +76,33 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   final _installationNomController = TextEditingController();
   final _installationLocalisationController = TextEditingController();
   final _installationGroupeController = TextEditingController();
+  bool _groupeSaisieLibre = false;
+
+  // Équipements déjà présents sur le site choisi — chargés dès que le
+  // client est connu pour un pôle Installation neuve, pour suggérer le
+  // nom suivant logique (voir _prochainNomLogique) et proposer les
+  // groupes déjà utilisés sur ce site plutôt qu'un texte libre.
+  List<EquipementModel> _equipementsSite = [];
 
   // Pôle Réparation diverse uniquement — équipement non répertorié dans
   // le parc GMAO, décrit à la main (voir Poles.avecEquipementLibre).
   final _equipementLibreController = TextEditingController();
 
+  // Pôle Entretien sous contrat uniquement — groupes cochés (au lieu
+  // d'un équipement unique, voir Poles.avecGroupesEntretien), puis parmi
+  // leurs équipements, ceux non entretenus avec leur motif.
+  final Set<String> _groupesSelectionnes = {};
+  final Set<String> _nonDesservisIds = {};
+  final Map<String, TextEditingController> _motifNonDesserviControllers = {};
+
+  // Pôle Dépannage uniquement — fourniture de matériel posé/consommé sur
+  // place (désignation + quantité, jamais de prix — voir
+  // Poles.avecFournitureMateriel), pas de devis pour s'y référer.
+  final List<Presta> _fournitureMateriel = [Presta()];
+
   final _emailController = TextEditingController();
 
-  // ---------- Étape 1 : Techniciens + Dates ----------
+  // ---------- Étape 3 : Techniciens + Dates + Signatures ----------
   final List<String> _techniciens = [];
   // Celui qui remplit le bon et signe réellement — distinct de la liste
   // ci-dessus (tous ceux intervenus sur place).
@@ -102,7 +121,7 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   final Map<int, Uint8List> _apercusPhotos = {};
   final Set<int> _photosEnCours = {};
 
-  // ---------- Étape 4 : Signatures ----------
+  // Signatures — voir Étape 3 ci-dessus (fusionnée avec Techniciens + Dates).
   final _signataireController = TextEditingController();
   final _signataireTelPortableController = TextEditingController();
   final _signataireTelFixeController = TextEditingController();
@@ -150,6 +169,9 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
     _installationLocalisationController.dispose();
     _installationGroupeController.dispose();
     _equipementLibreController.dispose();
+    for (final c in _motifNonDesserviControllers.values) {
+      c.dispose();
+    }
     _tempsPasseController.dispose();
     _compteRenduController.dispose();
     _obsTechController.dispose();
@@ -183,7 +205,7 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       _etape = 1;
     });
     _majTempsStandard();
-    _prefillCompteRenduEntretien();
+    _chargerEquipementsSite();
   }
 
   /// Réserve le numéro du bon s'il ne l'est pas déjà — appelé juste
@@ -226,8 +248,16 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
     _installationLocalisationController.clear();
     _installationGroupeController.clear();
     _equipementLibreController.clear();
+    _groupeSaisieLibre = false;
     _typeActif = null;
     _reconstruireMateriel(null);
+    _groupesSelectionnes.clear();
+    _nonDesservisIds.clear();
+    for (final c in _motifNonDesserviControllers.values) {
+      c.dispose();
+    }
+    _motifNonDesserviControllers.clear();
+    _texteAutoEntretien = '';
   }
 
   /// Champs de la famille pertinents pour le BI — exclut nom
@@ -259,6 +289,122 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
     }
   }
 
+  /// Équipements déjà présents sur le site — utile pour Installation
+  /// neuve (suggestion de nom, liste des groupes) et Entretien sous
+  /// contrat (choix des groupes à entretenir) ; requête évitée pour les
+  /// autres pôles.
+  Future<void> _chargerEquipementsSite() async {
+    if (!Poles.avecNouvelEquipement(_pole) && !Poles.avecGroupesEntretien(_pole)) {
+      if (_equipementsSite.isNotEmpty) setState(() => _equipementsSite = []);
+      return;
+    }
+    final client = _client;
+    if (client == null) return;
+    final equipements = await _gmaoDb.getEquipementsForClient(client.id).first;
+    if (mounted) setState(() => _equipementsSite = equipements);
+  }
+
+  List<String> get _groupesDisponibles =>
+      _equipementsSite.map((e) => e.groupe.trim()).where((g) => g.isNotEmpty).toSet().toList()..sort();
+
+  List<EquipementModel> get _equipementsGroupesSelectionnes =>
+      _equipementsSite.where((e) => _groupesSelectionnes.contains(e.groupe)).toList();
+
+  void _toggleGroupeEntretien(String groupe, bool selectionne) {
+    setState(() {
+      if (selectionne) {
+        _groupesSelectionnes.add(groupe);
+      } else {
+        _groupesSelectionnes.remove(groupe);
+        final idsDuGroupe = _equipementsSite.where((e) => e.groupe == groupe).map((e) => e.id).toSet();
+        for (final id in idsDuGroupe.intersection(_nonDesservisIds)) {
+          _nonDesservisIds.remove(id);
+          _motifNonDesserviControllers.remove(id)?.dispose();
+        }
+      }
+      _regenererCompteRenduEntretien();
+    });
+  }
+
+  void _toggleNonDesservi(EquipementModel eq) {
+    setState(() {
+      if (_nonDesservisIds.contains(eq.id)) {
+        _nonDesservisIds.remove(eq.id);
+        _motifNonDesserviControllers.remove(eq.id)?.dispose();
+      } else {
+        _nonDesservisIds.add(eq.id);
+        _motifNonDesserviControllers[eq.id] = TextEditingController();
+      }
+    });
+  }
+
+  /// Pré-remplit/actualise le compte rendu à chaque changement de
+  /// sélection de groupes — une ligne par groupe ("Entretien
+  /// [fréquence] {groupe} : X équipement(s)."). Ne réécrit jamais un
+  /// texte que le technicien a modifié à la main entre-temps.
+  String _texteAutoEntretien = '';
+
+  void _regenererCompteRenduEntretien() {
+    final actuel = _compteRenduController.text.trim();
+    if (actuel.isNotEmpty && actuel != _texteAutoEntretien.trim()) return;
+    final texte = _texteEntretienParGroupes();
+    _texteAutoEntretien = texte;
+    _compteRenduController.text = texte;
+  }
+
+  String _texteEntretienParGroupes() {
+    final lignes = <String>[];
+    for (final groupe in _groupesSelectionnes) {
+      final eqs = _equipementsSite.where((e) => e.groupe == groupe).toList();
+      if (eqs.isEmpty) continue;
+      final freqCount = <int, int>{};
+      for (final eq in eqs) {
+        final freq = int.tryParse(eq.champsEnTete['freqEntretienAnnuelle']?.toString() ?? '');
+        if (freq != null) freqCount[freq] = (freqCount[freq] ?? 0) + 1;
+      }
+      var freqLabel = '';
+      if (freqCount.isNotEmpty) {
+        final entries = freqCount.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+        const labels = {1: 'annuel', 2: 'semestriel', 4: 'trimestriel', 12: 'mensuel'};
+        freqLabel = labels[entries.first.key] ?? '';
+      }
+      final n = eqs.length;
+      lignes.add(
+        freqLabel.isEmpty
+            ? 'Entretien $groupe : $n équipement${n > 1 ? 's' : ''}.'
+            : 'Entretien $freqLabel $groupe : $n équipement${n > 1 ? 's' : ''}.',
+      );
+    }
+    return lignes.join('\n');
+  }
+
+  /// Repère la convention de nommage déjà utilisée pour cette famille sur
+  /// ce site (ex: "SPLIT 01".."SPLIT 11") et propose le numéro suivant
+  /// (ex: "SPLIT 12") — le préfixe le plus utilisé l'emporte en cas de
+  /// convention incohérente, puis le plus grand numéro déjà vu. Aucun nom
+  /// n'a ce format sur ce site pour cette famille → aucune suggestion.
+  String? _prochainNomLogique(List<String> nomsExistants) {
+    final regex = RegExp(r'^(.*?)\s*(\d+)$');
+    final maxParPrefixe = <String, int>{};
+    final comptesParPrefixe = <String, int>{};
+    for (final nom in nomsExistants) {
+      final m = regex.firstMatch(nom.trim());
+      if (m == null) continue;
+      final prefixe = m.group(1)!.trim();
+      final numero = int.tryParse(m.group(2)!);
+      if (prefixe.isEmpty || numero == null) continue;
+      comptesParPrefixe[prefixe] = (comptesParPrefixe[prefixe] ?? 0) + 1;
+      if (numero > (maxParPrefixe[prefixe] ?? -1)) maxParPrefixe[prefixe] = numero;
+    }
+    if (maxParPrefixe.isEmpty) return null;
+    final prefixeRetenu = maxParPrefixe.keys.reduce((a, b) {
+      final compteA = comptesParPrefixe[a]!, compteB = comptesParPrefixe[b]!;
+      if (compteA != compteB) return compteA > compteB ? a : b;
+      return maxParPrefixe[a]! > maxParPrefixe[b]! ? a : b;
+    });
+    return '$prefixeRetenu ${maxParPrefixe[prefixeRetenu]! + 1}';
+  }
+
   void _preremplirDepuisSite(ClientModel site) {
     // Pré-rempli depuis la fiche Répertoire — reste modifiable, le
     // technicien corrige si l'interlocuteur présent sur place n'est
@@ -288,7 +434,9 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
           _equipement = null;
           _effacerRemplacement();
           _preremplirDepuisSite(site);
+          _prefillCompteRenduDepuisAffaire(affaire);
         });
+        _chargerEquipementsSite();
       }
       return;
     }
@@ -305,55 +453,8 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
         _effacerRemplacement();
         _preremplirDepuisSite(site);
       });
-      _prefillCompteRenduEntretien();
+      _chargerEquipementsSite();
     }
-  }
-
-  /// Pôle Entretien sous contrat uniquement : pré-remplit le compte
-  /// rendu avec un texte type ("Entretien semestriel de X climatiseurs
-  /// autonomes, Y brasseurs d'air.") construit en comptant les
-  /// équipements du site par famille et en retenant leur fréquence
-  /// d'entretien annuelle dominante — reste ensuite librement modifiable
-  /// par le technicien, jamais réécrit si déjà saisi.
-  Future<void> _prefillCompteRenduEntretien() async {
-    if (_pole != Poles.entretienSousContrat) return;
-    final client = _client;
-    if (client == null) return;
-    if (_compteRenduController.text.trim().isNotEmpty) return;
-    final equipements = await _gmaoDb.getEquipementsForClient(client.id).first;
-    final types = await _gmaoDb.getTypesEquipement().first;
-    if (!mounted) return;
-    if (_pole != Poles.entretienSousContrat || _client?.id != client.id) return;
-    final texte = _texteEntretienAuto(equipements, types);
-    if (texte.isNotEmpty && _compteRenduController.text.trim().isEmpty) {
-      setState(() => _compteRenduController.text = texte);
-    }
-  }
-
-  String _texteEntretienAuto(List<EquipementModel> equipements, List<TypeEquipementModel> types) {
-    if (equipements.isEmpty) return '';
-    final typesById = {for (final t in types) t.id: t};
-    final comptes = <String, int>{};
-    final freqCount = <int, int>{};
-    for (final eq in equipements) {
-      final type = typesById[eq.typeEquipementId];
-      final label = ((type?.typeEquipement1Fixe ?? '').isNotEmpty
-              ? type!.typeEquipement1Fixe
-              : (type?.nom ?? 'équipement'))
-          .toLowerCase();
-      comptes[label] = (comptes[label] ?? 0) + 1;
-      final freq = int.tryParse(eq.champsEnTete['freqEntretienAnnuelle']?.toString() ?? '');
-      if (freq != null) freqCount[freq] = (freqCount[freq] ?? 0) + 1;
-    }
-    if (comptes.isEmpty) return '';
-    var freqLabel = '';
-    if (freqCount.isNotEmpty) {
-      final entries = freqCount.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
-      const labels = {1: 'annuel', 2: 'semestriel', 4: 'trimestriel', 12: 'mensuel'};
-      freqLabel = labels[entries.first.key] ?? '';
-    }
-    final segments = comptes.entries.map((e) => '${e.value} ${e.key}${e.value > 1 ? 's' : ''}').join(', ');
-    return freqLabel.isEmpty ? 'Entretien de $segments.' : 'Entretien $freqLabel de $segments.';
   }
 
   Future<void> _choisirAffaire() async {
@@ -365,7 +466,22 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
         builder: (context) => ClientAffairesListScreen(client: client, modeSelection: true, natureFiltre: _pole),
       ),
     );
-    if (affaire != null && mounted) setState(() => _affaire = affaire);
+    if (affaire != null && mounted) {
+      setState(() {
+        _affaire = affaire;
+        _prefillCompteRenduDepuisAffaire(affaire);
+      });
+    }
+  }
+
+  /// Le devis porte déjà une description des travaux prévus (colonne
+  /// "Remarques Libres" à l'import, voir AffaireImportService) — reprise
+  /// telle quelle comme point de départ du compte rendu, jamais réécrite
+  /// si le technicien a déjà saisi quelque chose.
+  void _prefillCompteRenduDepuisAffaire(AffaireModel affaire) {
+    if (_compteRenduController.text.trim().isNotEmpty) return;
+    final texte = affaire.designationPrestations.trim();
+    if (texte.isNotEmpty) _compteRenduController.text = texte;
   }
 
   Future<void> _choisirEquipement() async {
@@ -517,6 +633,12 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       if (_installationLocalisationController.text.trim().isEmpty) return false;
       if (!_materielComplet) return false;
     }
+    if (Poles.avecGroupesEntretien(_pole)) {
+      if (_groupesSelectionnes.isEmpty) return false;
+      for (final id in _nonDesservisIds) {
+        if ((_motifNonDesserviControllers[id]?.text.trim() ?? '').isEmpty) return false;
+      }
+    }
     return true;
   }
 
@@ -584,6 +706,12 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       affaireDateCommandeClient: _affaire?.dateCommandeClient ?? '',
       materielTypeEquipementId: _typeActif?.id ?? '',
       materielChampsEnTete: Map<String, dynamic>.from(_materielChampsEnTete),
+      entretienGroupes: _groupesSelectionnes.toList(),
+      entretienNonDesservis: [
+        for (final eq in _equipementsGroupesSelectionnes)
+          if (_nonDesservisIds.contains(eq.id))
+            {'nom': eq.nom, 'motif': (_motifNonDesserviControllers[eq.id]?.text ?? '').trim()},
+      ],
       dateDebut: _dateDebut,
       dateFin: _dateFin,
       dateIntervention: _dateIntervention,
@@ -592,19 +720,29 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       // _apercuTempsDepannageWidget) — la multiplication par l'effectif
       // n'est appliquée qu'ici, une seule fois, à l'enregistrement. Les
       // autres pôles multiplient déjà en direct (journée type
-      // recalculée à chaque changement, voir _majTempsStandard).
-      tempsPasse: Poles.avecTempsLibre(_pole)
-          ? BiFormat.multiplierDuree(_tempsPasseController.text.trim(), _techniciens.length)
-          : _tempsPasseController.text.trim(),
+      // recalculée à chaque changement, voir _majTempsStandard). Pôles
+      // liés à un devis (Poles.sansTempsPasse) : le champ n'est même
+      // plus proposé, toujours vide.
+      tempsPasse: Poles.sansTempsPasse(_pole)
+          ? ''
+          : (Poles.avecTempsLibre(_pole)
+              ? BiFormat.multiplierDuree(_tempsPasseController.text.trim(), _techniciens.length)
+              : _tempsPasseController.text.trim()),
       techniciens: List.from(_techniciens),
       technicienSignataire: _technicienConnecte,
       compteRendu: _compteRenduController.text.trim(),
       obsTech: _obsTechController.text.trim(),
       obsClient: _obsClientController.text.trim(),
-      // Le technicien ne saisit plus les prestations : déjà connues du
-      // devis (voir _affaire), le bureau les reprend lui-même à la
-      // validation (voir "Prestations & fournitures" côté bureau).
-      prestas: const [],
+      // Ni le technicien ni le bureau ne saisissent de prestations sur
+      // devis : le devis (voir _affaire) fait foi. Dépannage seul y
+      // échappe (pas de devis, voir Poles.avecFournitureMateriel) : la
+      // fourniture de matériel posé/consommé reste utile à tracer.
+      prestas: Poles.avecFournitureMateriel(_pole)
+          ? _fournitureMateriel
+              .where((p) => p.designation.trim().isNotEmpty)
+              .map((p) => Presta(designation: p.designation, quantite: p.quantite))
+              .toList()
+          : const [],
       photos: List.from(_photos),
       sigTech: '',
       sigClient: '',
@@ -768,11 +906,9 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       case 1:
         return _etapeClient();
       case 2:
-        return _etapeTechniciensDates();
-      case 3:
         return _etapeCompteRendu();
       default:
-        return _etapeSignatures();
+        return _etapeTechniciensSignatures();
     }
   }
 
@@ -1067,6 +1203,35 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
             style: OutlinedButton.styleFrom(foregroundColor: biAccent, side: BorderSide(color: biAccent)),
           ),
       ],
+      if (Poles.avecGroupesEntretien(_pole)) ...[
+        _sectionTitle('Groupes à entretenir'),
+        if (_equipementsSite.isEmpty)
+          Text(
+            'Aucun équipement enregistré sur ce site.',
+            style: TextStyle(color: Colors.grey[600], fontSize: 12),
+          )
+        else
+          ..._groupesDisponibles.map(
+            (groupe) => CheckboxListTile(
+              value: _groupesSelectionnes.contains(groupe),
+              onChanged: (v) => _toggleGroupeEntretien(groupe, v ?? false),
+              title: Text(groupe),
+              subtitle: Text(
+                '${_equipementsSite.where((e) => e.groupe == groupe).length} équipement(s)',
+                style: const TextStyle(fontSize: 11),
+              ),
+              controlAffinity: ListTileControlAffinity.leading,
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              activeColor: biAccent,
+            ),
+          ),
+        if (_groupesSelectionnes.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _sectionTitle('Équipements non entretenus (optionnel)'),
+          ..._equipementsGroupesSelectionnes.map(_champNonDesservi),
+        ],
+      ],
       if (Poles.avecEquipementObligatoire(_pole)) ...[
         _sectionTitle('Équipement'),
         if (_equipement != null)
@@ -1097,6 +1262,22 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       ],
       if (Poles.avecNouvelEquipement(_pole)) ...[
         _sectionTitle('Nouvel équipement à installer'),
+        DropdownButtonFormField<TypeEquipementModel>(
+          initialValue: _typeActif,
+          isExpanded: true,
+          decoration: const InputDecoration(labelText: 'Famille d\'équipement', border: OutlineInputBorder(), isDense: true),
+          items: _typesEquipement.map((t) => DropdownMenuItem(value: t, child: Text(t.nom))).toList(),
+          onChanged: (t) => setState(() {
+            _typeActif = t;
+            _reconstruireMateriel(t);
+            if (t != null) {
+              final memeFamille = _equipementsSite.where((e) => e.typeEquipementId == t.id).map((e) => e.nom).toList();
+              final suggestion = _prochainNomLogique(memeFamille);
+              if (suggestion != null) _installationNomController.text = suggestion;
+            }
+          }),
+        ),
+        const SizedBox(height: 10),
         TextField(
           controller: _installationNomController,
           decoration: const InputDecoration(labelText: 'Nom de l\'équipement', border: OutlineInputBorder(), isDense: true),
@@ -1109,21 +1290,7 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
           onChanged: (_) => setState(() {}),
         ),
         const SizedBox(height: 10),
-        TextField(
-          controller: _installationGroupeController,
-          decoration: const InputDecoration(labelText: 'Groupe (optionnel)', border: OutlineInputBorder(), isDense: true),
-        ),
-        const SizedBox(height: 10),
-        DropdownButtonFormField<TypeEquipementModel>(
-          initialValue: _typeActif,
-          isExpanded: true,
-          decoration: const InputDecoration(labelText: 'Famille d\'équipement', border: OutlineInputBorder(), isDense: true),
-          items: _typesEquipement.map((t) => DropdownMenuItem(value: t, child: Text(t.nom))).toList(),
-          onChanged: (t) => setState(() {
-            _typeActif = t;
-            _reconstruireMateriel(t);
-          }),
-        ),
+        _champGroupeInstallation(),
         if (_typeActif != null) ...[
           const SizedBox(height: 10),
           _sectionTitle('Caractéristiques du matériel'),
@@ -1206,7 +1373,86 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
     );
   }
 
-  // ---------- Étape 1 ----------
+  /// Pôle Entretien sous contrat uniquement — case à cocher "non
+  /// entretenu" pour un équipement d'un groupe coché, avec son motif si
+  /// cochée (voir _toggleNonDesservi).
+  Widget _champNonDesservi(EquipementModel eq) {
+    final coche = _nonDesservisIds.contains(eq.id);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CheckboxListTile(
+          value: coche,
+          onChanged: (_) => _toggleNonDesservi(eq),
+          title: Text(eq.nom),
+          subtitle: Text(eq.groupe, style: const TextStyle(fontSize: 11)),
+          controlAffinity: ListTileControlAffinity.leading,
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          activeColor: Colors.red[700],
+        ),
+        if (coche)
+          Padding(
+            padding: const EdgeInsets.only(left: 8, bottom: 8),
+            child: TextField(
+              controller: _motifNonDesserviControllers[eq.id],
+              decoration: const InputDecoration(
+                labelText: 'Motif de non-entretien',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+          ),
+      ],
+    );
+  }
+
+  static const _nouveauGroupe = '__nouveau_groupe__';
+
+  /// Groupes déjà utilisés sur ce site (voir _equipementsSite), avec une
+  /// entrée pour en saisir un nouveau — ce nouveau groupe reste soumis à
+  /// confirmation du bureau, comme le reste de la fiche (voir mention
+  /// "(à confirmer)" sur le BI/PDF pour Installation neuve).
+  Widget _champGroupeInstallation() {
+    final groupesExistants = _equipementsSite.map((e) => e.groupe.trim()).where((g) => g.isNotEmpty).toSet().toList()
+      ..sort();
+    final valeurActuelle = _installationGroupeController.text;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        DropdownButtonFormField<String>(
+          initialValue: _groupeSaisieLibre
+              ? _nouveauGroupe
+              : (groupesExistants.contains(valeurActuelle) ? valeurActuelle : null),
+          isExpanded: true,
+          decoration: const InputDecoration(labelText: 'Groupe (optionnel)', border: OutlineInputBorder(), isDense: true),
+          items: [
+            for (final g in groupesExistants) DropdownMenuItem(value: g, child: Text(g)),
+            const DropdownMenuItem(value: _nouveauGroupe, child: Text('+ Ajouter un nouveau groupe')),
+          ],
+          onChanged: (v) => setState(() {
+            if (v == _nouveauGroupe) {
+              _groupeSaisieLibre = true;
+              _installationGroupeController.clear();
+            } else {
+              _groupeSaisieLibre = false;
+              _installationGroupeController.text = v ?? '';
+            }
+          }),
+        ),
+        if (_groupeSaisieLibre) ...[
+          const SizedBox(height: 10),
+          TextField(
+            controller: _installationGroupeController,
+            decoration: const InputDecoration(labelText: 'Nouveau groupe', border: OutlineInputBorder(), isDense: true),
+          ),
+        ],
+      ],
+    );
+  }
+
+  // ---------- Étape 3 ----------
   Future<void> _choisirDate(bool Function(DateTime) appliquer) async {
     final d = await showDatePicker(
       context: context,
@@ -1234,9 +1480,10 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
   }
 
 
-  // Techniciens d'abord : le temps passé (juste en dessous) dépend de
-  // l'effectif pour son calcul, autant le connaître avant.
-  Widget _etapeTechniciensDates() {
+  // Techniciens et dates, puis signataire/signatures — étapes 3 et 5
+  // réunies en une seule (voir _totalEtapes) : techniciens d'abord, le
+  // temps passé (juste en dessous) dépend de l'effectif pour son calcul.
+  Widget _etapeTechniciensSignatures() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1288,159 +1535,23 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
               _majTempsStandard();
             }),
           ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: _tempsPasseController,
-            decoration: const InputDecoration(
-              labelText: 'Temps passé',
-              border: OutlineInputBorder(),
-              isDense: true,
+          // Pôles liés à un devis (Poles.sansTempsPasse) : le temps est
+          // déjà couvert par le devis, pas facturé au bon — champ inutile.
+          if (!Poles.sansTempsPasse(_pole)) ...[
+            const SizedBox(height: 10),
+            TextField(
+              controller: _tempsPasseController,
+              decoration: const InputDecoration(
+                labelText: 'Temps passé',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              onChanged: _saisirTemps,
             ),
-            onChanged: _saisirTemps,
-          ),
-          _apercuTempsDepannageWidget(),
-        ],
-      ],
-    );
-  }
-
-  // ---------- Étape 2 ----------
-  Widget _etapeCompteRendu() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionTitle('Compte rendu'),
-        TextField(
-          controller: _compteRenduController,
-          maxLines: 5,
-          decoration: const InputDecoration(border: OutlineInputBorder(), hintText: 'Détail de l\'intervention...'),
-        ),
-        _sectionTitle('Observation technicien'),
-        TextField(
-          controller: _obsTechController,
-          maxLines: 3,
-          decoration: const InputDecoration(border: OutlineInputBorder()),
-        ),
-        _sectionTitle('Photos (${_photos.length}/4)'),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            for (var i = 0; i < _photos.length; i++)
-              _cartePhoto(i),
-            if (_photos.length < 4)
-              InkWell(
-                onTap: _choisirPhoto,
-                child: Container(
-                  width: 110,
-                  height: 110,
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey[400]!),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(Icons.add_a_photo_outlined, color: Colors.grey),
-                ),
-              ),
+            _apercuTempsDepannageWidget(),
           ],
-        ),
-      ],
-    );
-  }
-
-  Widget _cartePhoto(int i) {
-    final photo = _photos[i];
-    final bytes = _apercusPhotos[i];
-    final enCours = _photosEnCours.contains(i);
-    return SizedBox(
-      width: 110,
-      child: Column(
-        children: [
-          Stack(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: bytes != null
-                    ? Image.memory(bytes, width: 110, height: 110, fit: BoxFit.cover)
-                    : Container(width: 110, height: 110, color: Colors.grey[200]),
-              ),
-              if (enCours)
-                Container(
-                  width: 110,
-                  height: 110,
-                  decoration: BoxDecoration(
-                    color: Colors.black45,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Center(
-                    child: SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                    ),
-                  ),
-                ),
-              Positioned(
-                top: 0,
-                right: 0,
-                child: IconButton(
-                  icon: const Icon(Icons.cancel, color: Colors.red, size: 20),
-                  onPressed: enCours
-                      ? null
-                      : () => setState(() {
-                          _photos.removeAt(i);
-                          _apercusPhotos.remove(i);
-                        }),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          DropdownButton<String>(
-            value: photo.type,
-            isDense: true,
-            isExpanded: true,
-            items: photoTypes.entries
-                .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value, style: const TextStyle(fontSize: 11))))
-                .toList(),
-            onChanged: (v) => setState(() => photo.type = v ?? photo.type),
-          ),
         ],
-      ),
-    );
-  }
-
-  // ---------- Étape 4 ----------
-  Widget _padSignature(String titre, SignatureController controller) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(titre, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-        const SizedBox(height: 6),
-        Container(
-          height: 140,
-          decoration: BoxDecoration(
-            border: Border.all(color: biAccent.withValues(alpha: 0.4)),
-            borderRadius: BorderRadius.circular(8),
-            color: Colors.grey[50],
-          ),
-          child: Signature(controller: controller, backgroundColor: Colors.grey[50]!),
-        ),
-        Align(
-          alignment: Alignment.centerRight,
-          child: TextButton.icon(
-            onPressed: () => setState(() => controller.clear()),
-            icon: const Icon(Icons.refresh, size: 16),
-            label: const Text('Effacer'),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _etapeSignatures() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
+        const SizedBox(height: 20),
         _sectionTitle('Signataire client'),
         TextField(
           controller: _signataireController,
@@ -1511,4 +1622,184 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
       ],
     );
   }
+
+  // ---------- Étape 2 ----------
+  Widget _etapeCompteRendu() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle('Compte rendu'),
+        TextField(
+          controller: _compteRenduController,
+          maxLines: 5,
+          decoration: const InputDecoration(border: OutlineInputBorder(), hintText: 'Détail de l\'intervention...'),
+        ),
+        _sectionTitle('Observation technicien'),
+        TextField(
+          controller: _obsTechController,
+          maxLines: 3,
+          decoration: const InputDecoration(border: OutlineInputBorder()),
+        ),
+        _sectionTitle('Photos (${_photos.length}/4)'),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            for (var i = 0; i < _photos.length; i++)
+              _cartePhoto(i),
+            if (_photos.length < 4)
+              InkWell(
+                onTap: _choisirPhoto,
+                child: Container(
+                  width: 110,
+                  height: 110,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey[400]!),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.add_a_photo_outlined, color: Colors.grey),
+                ),
+              ),
+          ],
+        ),
+        if (Poles.avecFournitureMateriel(_pole)) ...[
+          _sectionTitle('Fourniture de matériel'),
+          const Text(
+            'Désignation et quantité uniquement — pas de devis pour ce pôle.',
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+          const SizedBox(height: 8),
+          for (var i = 0; i < _fournitureMateriel.length; i++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: TextFormField(
+                      initialValue: _fournitureMateriel[i].designation,
+                      decoration: const InputDecoration(
+                        labelText: 'Désignation',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (v) => _fournitureMateriel[i].designation = v,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextFormField(
+                      initialValue: _fournitureMateriel[i].quantite,
+                      decoration: const InputDecoration(labelText: 'Qté', isDense: true, border: OutlineInputBorder()),
+                      onChanged: (v) => _fournitureMateriel[i].quantite = v,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
+                    onPressed: _fournitureMateriel.length == 1
+                        ? null
+                        : () => setState(() => _fournitureMateriel.removeAt(i)),
+                  ),
+                ],
+              ),
+            ),
+          TextButton.icon(
+            onPressed: () => setState(() => _fournitureMateriel.add(Presta())),
+            icon: const Icon(Icons.add),
+            label: const Text('Ajouter une ligne'),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _cartePhoto(int i) {
+    final photo = _photos[i];
+    final bytes = _apercusPhotos[i];
+    final enCours = _photosEnCours.contains(i);
+    return SizedBox(
+      width: 110,
+      child: Column(
+        children: [
+          Stack(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: bytes != null
+                    ? Image.memory(bytes, width: 110, height: 110, fit: BoxFit.cover)
+                    : Container(width: 110, height: 110, color: Colors.grey[200]),
+              ),
+              if (enCours)
+                Container(
+                  width: 110,
+                  height: 110,
+                  decoration: BoxDecoration(
+                    color: Colors.black45,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Center(
+                    child: SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                    ),
+                  ),
+                ),
+              Positioned(
+                top: 0,
+                right: 0,
+                child: IconButton(
+                  icon: const Icon(Icons.cancel, color: Colors.red, size: 20),
+                  onPressed: enCours
+                      ? null
+                      : () => setState(() {
+                          _photos.removeAt(i);
+                          _apercusPhotos.remove(i);
+                        }),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          DropdownButton<String>(
+            value: photo.type,
+            isDense: true,
+            isExpanded: true,
+            items: photoTypes.entries
+                .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value, style: const TextStyle(fontSize: 11))))
+                .toList(),
+            onChanged: (v) => setState(() => photo.type = v ?? photo.type),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _padSignature(String titre, SignatureController controller) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(titre, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+        const SizedBox(height: 6),
+        Container(
+          height: 140,
+          decoration: BoxDecoration(
+            border: Border.all(color: biAccent.withValues(alpha: 0.4)),
+            borderRadius: BorderRadius.circular(8),
+            color: Colors.grey[50],
+          ),
+          child: Signature(controller: controller, backgroundColor: Colors.grey[50]!),
+        ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: () => setState(() => controller.clear()),
+            icon: const Icon(Icons.refresh, size: 16),
+            label: const Text('Effacer'),
+          ),
+        ),
+      ],
+    );
+  }
+
 }

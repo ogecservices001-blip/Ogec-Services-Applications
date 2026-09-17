@@ -117,6 +117,13 @@ class BonIntervention {
   String materielTypeEquipementId;
   Map<String, dynamic> materielChampsEnTete;
 
+  // Pôle "Entretien sous contrat" uniquement — groupes cochés (voir
+  // Poles.avecGroupesEntretien) plutôt qu'un équipement unique, et les
+  // équipements de ces groupes qui n'ont pas pu être entretenus, chacun
+  // avec son motif (ex: [{'nom': 'Split 06', 'motif': 'Accès impossible'}]).
+  List<String> entretienGroupes;
+  List<Map<String, String>> entretienNonDesservis;
+
   // Dates — règles par pôle
   String dateDebut; // pôle 20
   String dateFin; // pôle 20
@@ -183,6 +190,8 @@ class BonIntervention {
     this.affaireDateCommandeClient = '',
     this.materielTypeEquipementId = '',
     Map<String, dynamic>? materielChampsEnTete,
+    List<String>? entretienGroupes,
+    List<Map<String, String>>? entretienNonDesservis,
     this.dateDebut = '',
     this.dateFin = '',
     this.dateIntervention = '',
@@ -215,6 +224,8 @@ class BonIntervention {
        prestas = prestas ?? [Presta()],
        photos = photos ?? [],
        materielChampsEnTete = materielChampsEnTete ?? {},
+       entretienGroupes = entretienGroupes ?? [],
+       entretienNonDesservis = entretienNonDesservis ?? [],
        history = history ?? [];
 
   factory BonIntervention.fromFirestore(DocumentSnapshot doc) {
@@ -242,6 +253,10 @@ class BonIntervention {
       affaireDateCommandeClient: d['affaireDateCommandeClient'] ?? '',
       materielTypeEquipementId: d['materielTypeEquipementId'] ?? '',
       materielChampsEnTete: Map<String, dynamic>.from(d['materielChampsEnTete'] ?? {}),
+      entretienGroupes: List<String>.from(d['entretienGroupes'] ?? []),
+      entretienNonDesservis: (d['entretienNonDesservis'] as List<dynamic>? ?? [])
+          .map((m) => Map<String, String>.from(m))
+          .toList(),
       dateDebut: d['dateDebut'] ?? '',
       dateFin: d['dateFin'] ?? '',
       dateIntervention: d['dateIntervention'] ?? '',
@@ -301,6 +316,8 @@ class BonIntervention {
     'affaireDateCommandeClient': affaireDateCommandeClient,
     'materielTypeEquipementId': materielTypeEquipementId,
     'materielChampsEnTete': materielChampsEnTete,
+    'entretienGroupes': entretienGroupes,
+    'entretienNonDesservis': entretienNonDesservis,
     'dateDebut': dateDebut,
     'dateFin': dateFin,
     'dateIntervention': dateIntervention,

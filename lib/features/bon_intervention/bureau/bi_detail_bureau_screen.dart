@@ -38,25 +38,30 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
   bool _validationEnCours = false;
   bool _pdfEnCours = false;
 
+  /// Génère le PDF et l'archive sur Drive si ce n'est pas déjà fait —
+  /// appelée automatiquement à la validation (voir _valider) pour que le
+  /// document existe sans étape manuelle supplémentaire ; sert aussi de
+  /// filet de sécurité si un bon plus ancien n'a jamais été archivé.
+  Future<void> _archiverPdfSiBesoin(BonIntervention b) async {
+    if (b.pdfDriveUrl.isNotEmpty || !mounted) return;
+    final bytes = await BiPdfGenerator.generer(b);
+    if (!mounted) return;
+    final compte = await AdminGoogleSession.instance.ensureSignedIn(context);
+    final resultat = await _driveService.archiverBI(adminAccount: compte, bi: b, pdfBytes: bytes);
+    await _biService.updateBI(b.id, {
+      'statut': Statuts.pretEnvoi,
+      'driveBiFolderId': resultat.biFolderId,
+      'pdfDriveUrl': resultat.pdfLink,
+      'jsonDriveUrl': resultat.jsonLink,
+    });
+  }
+
   Future<void> _voirPdf(BonIntervention b) async {
     setState(() => _pdfEnCours = true);
     try {
       final bytes = await BiPdfGenerator.generer(b);
       await Printing.layoutPdf(onLayout: (format) async => bytes);
-
-      if (b.pdfDriveUrl.isEmpty) {
-        if (!mounted) return;
-        final compte = await AdminGoogleSession.instance.ensureSignedIn(context);
-        final resultat = await _driveService.archiverBI(adminAccount: compte, bi: b, pdfBytes: bytes);
-        await _biService.updateBI(b.id, {
-          'statut': Statuts.pretEnvoi,
-          'driveBiFolderId': resultat.biFolderId,
-          'pdfDriveUrl': resultat.pdfLink,
-          'jsonDriveUrl': resultat.jsonLink,
-        });
-      } else if (b.statut == Statuts.valide) {
-        await _biService.updateBI(b.id, {'statut': Statuts.pdfGenere});
-      }
+      await _archiverPdfSiBesoin(b);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -178,13 +183,28 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
           'Réparé le $date via ${bi.numero} : ${bi.compteRendu}',
         );
         break;
-      case Poles.entretienSousContrat:
       case Poles.entretienHorsContrat:
         if (bi.equipementId.isEmpty) return;
         await _gmaoDb.ajouterRemarqueEquipement(
           bi.equipementId,
           'Entretien effectué le $date via ${bi.numero} : ${bi.compteRendu}',
         );
+        break;
+      case Poles.entretienSousContrat:
+        // Un ou plusieurs groupes plutôt qu'un équipement unique (voir
+        // Poles.avecGroupesEntretien) — la remarque est reportée sur
+        // chaque équipement des groupes cochés, sauf ceux marqués non
+        // entretenus (voir entretienNonDesservis).
+        if (bi.entretienGroupes.isEmpty) return;
+        final equipementsSite = await _gmaoDb.getEquipementsForClient(bi.clientId).first;
+        final nomsNonDesservis = bi.entretienNonDesservis.map((e) => e['nom']).toSet();
+        for (final eq in equipementsSite) {
+          if (!bi.entretienGroupes.contains(eq.groupe) || nomsNonDesservis.contains(eq.nom)) continue;
+          await _gmaoDb.ajouterRemarqueEquipement(
+            eq.id,
+            'Entretien effectué le $date via ${bi.numero} : ${bi.compteRendu}',
+          );
+        }
         break;
       case Poles.remplacementIdentique:
         if (bi.equipementId.isEmpty) return;
@@ -276,6 +296,8 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
         affaireDateCommandeClient: original.affaireDateCommandeClient,
         materielTypeEquipementId: original.materielTypeEquipementId,
         materielChampsEnTete: original.materielChampsEnTete,
+        entretienGroupes: original.entretienGroupes,
+        entretienNonDesservis: original.entretienNonDesservis,
         dateDebut: _dateDebut,
         dateFin: _dateFin,
         dateIntervention: _dateIntervention,
@@ -313,6 +335,12 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
       } catch (_) {
         // L'automatisation GMAO ne doit jamais empêcher la validation du
         // bon lui-même — une erreur ici reste silencieuse pour l'usager.
+      }
+      try {
+        await _archiverPdfSiBesoin(bi);
+      } catch (_) {
+        // Idem : l'archivage PDF ne doit jamais bloquer la validation —
+        // le bouton "Voir PDF" reste un filet de sécurité si ça échoue ici.
       }
 
       if (!mounted) return;
@@ -363,6 +391,27 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
                         style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                       ),
                     ),
+                    if (_statutsAvecPdf.contains(b.statut)) ...[
+                      OutlinedButton.icon(
+                        onPressed: _pdfEnCours ? null : () => _voirPdf(b),
+                        icon: _pdfEnCours
+                            ? SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.red[700]),
+                              )
+                            : Icon(Icons.picture_as_pdf_outlined, size: 16, color: Colors.red[700]),
+                        label: const Text('Voir PDF'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red[700],
+                          side: BorderSide(color: Colors.red[700]!),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
                     StatutBadge(statut: b.statut),
                   ],
                 ),
@@ -411,26 +460,6 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
     final prestas = b.prestas.where((p) => p.designation.trim().isNotEmpty).toList();
     final total = BiFormat.totalHT(prestas);
     return [
-      if (_statutsAvecPdf.contains(b.statut))
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: SizedBox(
-            width: double.infinity,
-            height: 48,
-            child: OutlinedButton.icon(
-              onPressed: _pdfEnCours ? null : () => _voirPdf(b),
-              icon: _pdfEnCours
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.picture_as_pdf_outlined),
-              label: const Text('Voir le PDF'),
-              style: OutlinedButton.styleFrom(foregroundColor: biAccent, side: BorderSide(color: biAccent)),
-            ),
-          ),
-        ),
       if (b.pdfDriveUrl.isNotEmpty)
         Padding(
           padding: const EdgeInsets.only(bottom: 12),
@@ -447,13 +476,20 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
         if (b.affaireNumeroCommandeClient.isNotEmpty) _infoLigne('N° commande client', b.affaireNumeroCommandeClient),
         if (b.affaireDateCommandeClient.isNotEmpty) _infoLigne('Date commande client', b.affaireDateCommandeClient),
         if (b.equipementNom.isNotEmpty) _infoLigne('Équipement', BiFormat.equipementLabel(b)),
+        if (b.entretienGroupes.isNotEmpty) _infoLigne('Groupes entretenus', b.entretienGroupes.join(', ')),
         ..._lignesDates(b).map((e) => _infoLigne(e.key, e.value)),
       ]),
       _sectionCard('Compte rendu', [Text(b.compteRendu.isEmpty ? '—' : b.compteRendu)]),
-      _sectionCard('Prestations & fournitures', [
-        if (prestas.isEmpty)
-          const Text('—')
-        else ...[
+      if (b.entretienNonDesservis.isNotEmpty)
+        _sectionCard('Équipements non entretenus', [
+          for (final e in b.entretienNonDesservis) _infoLigne(e['nom'] ?? '', e['motif'] ?? ''),
+        ]),
+      // Plus personne ne saisit de prestations sur devis (ni le
+      // technicien, ni le bureau) : le devis fait foi. Dépannage seul y
+      // échappe (voir Poles.avecFournitureMateriel) ; ne reste sinon
+      // visible que sur un bon antérieur qui en porte déjà.
+      if (prestas.isNotEmpty)
+        _sectionCard('Prestations & fournitures', [
           for (final p in prestas)
             _infoLigne(
               p.designation,
@@ -464,8 +500,7 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
             const SizedBox(height: 4),
             _infoLigne('Total HT', BiFormat.eur(total)),
           ],
-        ],
-      ]),
+        ]),
     ];
   }
 
@@ -476,14 +511,46 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
     final avecHeuresHeritees = original.heureDebut.isNotEmpty || original.heureFin.isNotEmpty;
     final mesure = BiFormat.dureeEntre(_heureDebut, _heureFin);
     return [
-      if (original.equipementNom.isNotEmpty)
+      if (original.equipementNom.isNotEmpty) ...[
+        if (original.pole == Poles.installationNeuve)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline, size: 14, color: Colors.orange[800]),
+                const SizedBox(width: 6),
+                Text(
+                  'Nouvel équipement — à confirmer avant validation',
+                  style: TextStyle(fontSize: 12, color: Colors.orange[800], fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
         _sectionCard('Équipement', [
-          _infoLigne('Nom', original.equipementNom),
-          if (original.equipementGroupe.isNotEmpty) _infoLigne('Groupe', original.equipementGroupe),
+          _infoLigne(
+            'Nom',
+            original.pole == Poles.installationNeuve ? '${original.equipementNom} (à confirmer)' : original.equipementNom,
+          ),
+          if (original.equipementGroupe.isNotEmpty)
+            _infoLigne(
+              'Groupe',
+              original.pole == Poles.installationNeuve
+                  ? '${original.equipementGroupe} (à confirmer)'
+                  : original.equipementGroupe,
+            ),
           if (original.equipementLocalisation.isNotEmpty) _infoLigne('Localisation', original.equipementLocalisation),
           if ((original.pole == Poles.remplacementIdentique || original.pole == Poles.installationNeuve) &&
               original.materielChampsEnTete.isNotEmpty)
             _blocMaterielLectureSeule(original),
+        ]),
+      ],
+      if (original.entretienGroupes.isNotEmpty)
+        _sectionCard('Groupes entretenus', [
+          _infoLigne('Groupes', original.entretienGroupes.join(', ')),
+        ]),
+      if (original.entretienNonDesservis.isNotEmpty)
+        _sectionCard('Équipements non entretenus', [
+          for (final e in original.entretienNonDesservis) _infoLigne(e['nom'] ?? '', e['motif'] ?? ''),
         ]),
       _sectionCard('Vérification & correction (bureau)', [
         _deroulantPole(),
@@ -508,8 +575,12 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
                   (v) => _dateIntervention = v,
                 ),
               ),
-              const SizedBox(width: 10),
-              Expanded(child: _champTexte('Temps passé', _tempsPasse, (v) => _tempsPasse = v)),
+              // Pôles liés à un devis (Poles.sansTempsPasse) : le temps
+              // est déjà couvert par le devis, jamais saisi côté BI.
+              if (!Poles.sansTempsPasse(_pole)) ...[
+                const SizedBox(width: 10),
+                Expanded(child: _champTexte('Temps passé', _tempsPasse, (v) => _tempsPasse = v)),
+              ],
             ],
           ),
           if (avecHeuresHeritees) ...[
@@ -696,7 +767,9 @@ class _BiDetailBureauScreenState extends State<BiDetailBureauScreen> {
     if (b.heureDebut.isNotEmpty || b.heureFin.isNotEmpty) {
       lignes.add(MapEntry('Horaires', [b.heureDebut, b.heureFin].where((s) => s.isNotEmpty).join(' → ')));
     }
-    lignes.add(MapEntry('Temps passé', b.tempsPasse.isEmpty ? '—' : b.tempsPasse));
+    if (!Poles.sansTempsPasse(b.pole)) {
+      lignes.add(MapEntry('Temps passé', b.tempsPasse.isEmpty ? '—' : b.tempsPasse));
+    }
     return lignes;
   }
 

@@ -23,6 +23,12 @@ class BiPdfGenerator {
   static const _ligne = PdfColor.fromInt(0xFFCBD3DD);
   static const _fondSection = PdfColor.fromInt(0xFFE2EEFB);
 
+  static const _mentionLegale =
+      "La société OGEC SERVICES est titulaire de l'autorisation préfectorale N°1139819-R2, "
+      "conformément à l'article R.543-106, délivrée par l'organisme bureau VERITAS "
+      "CERTIFICATIONS et MINISTERE DE L'ENVIRONNEMENT, relative aux travaux de manipulation "
+      "des fluides frigorigènes.";
+
   static Future<Uint8List> generer(BonIntervention b) async {
     final regular = await PdfGoogleFonts.notoSansRegular();
     final bold = await PdfGoogleFonts.notoSansBold();
@@ -43,36 +49,65 @@ class BiPdfGenerator {
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.fromLTRB(28, 28, 28, 28),
         header: (context) => context.pageNumber == 1 ? _entete(b, logo, bold, regular) : pw.SizedBox(),
+        footer: (context) => pw.Padding(
+          padding: const pw.EdgeInsets.only(top: 8),
+          child: pw.Center(
+            child: pw.Text(
+              _mentionLegale.toLowerCase(),
+              textAlign: pw.TextAlign.center,
+              style: pw.TextStyle(font: regular, fontSize: 6.5, color: _gris),
+            ),
+          ),
+        ),
         build: (context) => [
           _section('LE CLIENT', bold),
           _kv('Client', b.site.isNotEmpty ? '${b.clientNom} — ${b.site}' : b.clientNom, styleBold, style),
-          _kv('Adresse', b.adresse.isEmpty ? '—' : b.adresse, styleBold, style),
+          _kv('Adresse d\'intervention', b.adresse.isEmpty ? '—' : b.adresse, styleBold, style),
           if (b.horsContrat) _kv('Statut', 'Client hors contrat', styleBold, style),
-          pw.SizedBox(height: 4),
+          pw.SizedBox(height: 8),
           _section('OGEC', bold),
           _kv('Technicien(s)', b.techniciens.join(', ').isEmpty ? '—' : b.techniciens.join(', '), styleBold, style),
           if (b.affaireNumeroDevis.isNotEmpty) _kv('Affaire', b.affaireNumeroDevis, styleBold, style),
           if (b.affaireNumeroCommandeClient.isNotEmpty)
-            _kv('N° commande client', b.affaireNumeroCommandeClient, styleBold, style),
+            _kv('Réf commande client', b.affaireNumeroCommandeClient, styleBold, style),
           if (b.affaireDateCommandeClient.isNotEmpty)
             _kv('Date commande client', b.affaireDateCommandeClient, styleBold, style),
-          if (b.equipementNom.isNotEmpty) _kv('Équipement', BiFormat.equipementLabel(b), styleBold, style),
+          if (b.equipementNom.isNotEmpty) ...[
+            if (_descriptionEquipement(b.pole) != null)
+              pw.Padding(
+                padding: const pw.EdgeInsets.only(top: 2, bottom: 1),
+                child: pw.Text(_descriptionEquipement(b.pole)!, style: style),
+              ),
+            _kv('Équipement', BiFormat.equipementLabel(b), styleBold, style),
+          ],
+          if (b.entretienGroupes.isNotEmpty)
+            _kv('Groupes entretenus', b.entretienGroupes.join(', '), styleBold, style),
           for (final ligne in _lignesDates(b)) _kv(ligne.key, ligne.value, styleBold, style),
           if (b.numeroDevis.isNotEmpty) _kv('N° devis lié', b.numeroDevis, styleBold, style),
-          pw.SizedBox(height: 4),
+          pw.SizedBox(height: 10),
           _section("DESCRIPTION DE L'INTERVENTION", bold),
           pw.Text(b.compteRendu.isEmpty ? '—' : b.compteRendu, style: style),
-          pw.SizedBox(height: 6),
-          _section('DÉTAIL DES PRESTATIONS ET FOURNITURES', bold),
-          _tablePrestas(b, bold, regular),
-          pw.SizedBox(height: 6),
+          pw.SizedBox(height: 10),
+          if (b.entretienNonDesservis.isNotEmpty) ...[
+            _section('ÉQUIPEMENTS NON ENTRETENUS', bold),
+            for (final e in b.entretienNonDesservis) _kv(e['nom'] ?? '', e['motif'] ?? '', styleBold, style),
+            pw.SizedBox(height: 10),
+          ],
+          // Plus personne ne saisit de prestations (ni le technicien, ni
+          // le bureau) : le devis fait foi. Cette rubrique n'apparaît
+          // donc plus que sur un bon antérieur qui en porte déjà.
+          if (b.prestas.any((p) => p.designation.trim().isNotEmpty)) ...[
+            _section('DÉTAIL DES PRESTATIONS ET FOURNITURES', bold),
+            _tablePrestas(b, bold, regular),
+            pw.SizedBox(height: 6),
+          ],
           if (b.obsTech.isNotEmpty || b.obsClient.isNotEmpty) ...[
             _section('OBSERVATIONS', bold),
             if (b.obsTech.isNotEmpty) _kv('Technicien', b.obsTech, styleBold, style),
             if (b.obsClient.isNotEmpty) _kv('Client', b.obsClient, styleBold, style),
-            pw.SizedBox(height: 4),
+            pw.SizedBox(height: 8),
           ],
-          pw.SizedBox(height: 16),
+          pw.SizedBox(height: 24),
           pw.Divider(color: _ligne, thickness: 0.8),
           pw.Row(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -82,7 +117,8 @@ class BiPdfGenerator {
                   // Seul le technicien connecté signe — pas la liste de
                   // tous ceux intervenus (voir "Technicien(s)" plus haut).
                   // Repli sur cette liste pour les bons antérieurs à ce champ.
-                  'Le technicien — ${b.technicienSignataire.isNotEmpty ? b.technicienSignataire : b.techniciens.join(', ')}',
+                  'Pour la Société OGEC Services\n'
+                  '${b.technicienSignataire.isNotEmpty ? b.technicienSignataire : b.techniciens.join(', ')}',
                   b.sigTech,
                   styleBold,
                 ),
@@ -90,7 +126,8 @@ class BiPdfGenerator {
               pw.SizedBox(width: 16),
               pw.Expanded(
                 child: _blocSignature(
-                  'Le client — ${b.signataire}${b.dateSignature.isNotEmpty ? '  (signé le ${b.dateSignature})' : ''}',
+                  'Pour le client - ${b.clientNom}\n${b.signataire}'
+                  '${b.dateSignature.isNotEmpty ? '  (signé le ${b.dateSignature})' : ''}',
                   b.sigClient,
                   styleBold,
                 ),
@@ -220,11 +257,28 @@ class BiPdfGenerator {
     child: pw.Row(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        pw.SizedBox(width: 95, child: pw.Text('$k :', style: keyStyle)),
+        // Assez large pour les libellés les plus longs (ex: "Date
+        // d'intervention :") — sinon le mot de fin retombe seul à la
+        // ligne suivante, sans sa valeur à côté.
+        pw.SizedBox(width: 135, child: pw.Text('$k :', style: keyStyle)),
         pw.Expanded(child: pw.Text(v, style: valStyle)),
       ],
     ),
   );
+
+  /// Phrase affichée juste avant la ligne "Équipement" — précise la
+  /// nature de l'intervention sur cet équipement selon le pôle ; null si
+  /// le pôle ne le justifie pas (l'équipement reste alors simplement
+  /// informatif, sans besoin de contexte supplémentaire).
+  static String? _descriptionEquipement(String pole) => switch (pole) {
+    Poles.installationNeuve => 'Équipement complémentaire',
+    Poles.remplacementIdentique => 'Remplacement d\'un équipement existant',
+    Poles.reparationEquipement => 'Réparation d\'un équipement existant',
+    Poles.reparationDiverse => 'Réparation diverse sur équipement existant',
+    Poles.entretienSousContrat => 'Entretien d\'un équipement sous contrat',
+    Poles.entretienHorsContrat => 'Entretien d\'un équipement hors contrat',
+    _ => null,
+  };
 
   static List<MapEntry<String, String>> _lignesDates(BonIntervention b) {
     if (Poles.avecPeriode(b.pole)) {
@@ -239,7 +293,8 @@ class BiPdfGenerator {
     if (b.heureDebut.isNotEmpty || b.heureFin.isNotEmpty) {
       lignes.add(MapEntry('Horaires', [b.heureDebut, b.heureFin].where((s) => s.isNotEmpty).join(' → ')));
     }
-    lignes.add(MapEntry('Temps passé', b.tempsPasse.isEmpty ? '—' : b.tempsPasse));
+    // Temps passé retiré du PDF — sert au calcul interne, pas à
+    // apparaître sur le document remis au client.
     return lignes;
   }
 

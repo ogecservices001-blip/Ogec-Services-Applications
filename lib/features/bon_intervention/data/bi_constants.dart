@@ -55,11 +55,19 @@ class Poles {
   static bool avecPeriode(String code) => code == entretienSousContrat;
 
   /// Équipement du parc GMAO obligatoire à la création du bon.
+  /// Entretien hors contrat : plus d'équipement à choisir, direct au
+  /// compte rendu. Entretien sous contrat : remplacé par un choix de
+  /// groupes (voir avecGroupesEntretien), pas un équipement unique.
   static bool avecEquipementObligatoire(String code) =>
-      code == remplacementIdentique ||
-      code == entretienHorsContrat ||
-      code == reparationEquipement ||
-      code == entretienSousContrat;
+      code == remplacementIdentique || code == reparationEquipement;
+
+  /// Entretien sous contrat uniquement : au lieu d'un équipement unique,
+  /// le technicien coche un ou plusieurs groupes déjà existants sur le
+  /// site (ex: "Split Système étage 1/2/3") — le compte rendu se
+  /// pré-remplit pour ces groupes-là, et les équipements non entretenus
+  /// s'y sélectionnent avec un motif (voir BonIntervention.entretienGroupes/
+  /// entretienNonDesservis).
+  static bool avecGroupesEntretien(String code) => code == entretienSousContrat;
 
   /// Équipement du parc GMAO proposé mais pas exigé — Dépannage (l'appel
   /// SAV ne cible pas toujours un équipement enregistré) et Réparation
@@ -85,6 +93,23 @@ class Poles {
   /// Réparation d'un équipement/diverse qui en découlent.
   static bool avecTempsLibre(String code) =>
       code == reparationEquipement || code == reparationDiverse || code == depannage;
+
+  /// Pôles liés à un devis où le temps passé n'a pas sa place dans le
+  /// bon : il est déjà couvert par le devis, pas facturé au bon. N'inclut
+  /// pas Entretien hors contrat (temps toujours utile) ni Dépannage
+  /// (jamais de devis, le temps reste la seule mesure).
+  static bool sansTempsPasse(String code) =>
+      code == installationNeuve ||
+      code == remplacementIdentique ||
+      code == reparationEquipement ||
+      code == reparationDiverse ||
+      code == miseADisposition ||
+      code == livraisonMateriel;
+
+  /// Dépannage uniquement : fourniture de matériel utilisé (désignation +
+  /// quantité, jamais de prix — réservé au bureau ailleurs) — seul pôle
+  /// sans devis pour justifier ce qui a été posé/consommé sur place.
+  static bool avecFournitureMateriel(String code) => code == depannage;
 }
 
 /// Statuts du workflow d'un bon d'intervention.
