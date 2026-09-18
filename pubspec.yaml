@@ -2,7 +2,7 @@ name: ogec_services_app
 description: "Application unifiée OGEC Services — CERFA et répertoire clients/fournisseurs"
 publish_to: 'none'
 
-version: 1.0.8+47
+version: 1.0.9+48
 
 environment:
   sdk: '>=3.10.0 <4.0.0'
@@ -54,6 +54,11 @@ dependencies:
 
   # Branding
   flutter_launcher_icons: ^0.14.4
+
+  # QR équipement public + demandes de dépannage
+  # (appelées en HTTP brut via `http`, pas via le package `cloud_functions`
+  # — celui-ci plante en web release, voir equipement_public_screen.dart)
+  qr_flutter: ^4.1.0
 
 dev_dependencies:
   flutter_test:

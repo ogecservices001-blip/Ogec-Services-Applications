@@ -23,6 +23,8 @@ import '../gmao/gmao_home_screen.dart';
 import '../bon_intervention/wizard/bi_wizard_screen.dart' show biAccent;
 import '../bon_intervention/bureau/bi_list_screen.dart';
 import '../affaires/travaux_clients_screen.dart';
+import '../gmao/depannage/demande_depannage_service.dart';
+import '../gmao/depannage/demandes_depannage_list_screen.dart';
 import 'widgets/app_version_label.dart';
 import 'widgets/dashboard_grid_card.dart';
 import 'widgets/dashboard_section_screen.dart';
@@ -97,6 +99,29 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 context,
                 MaterialPageRoute(builder: (context) => const GmaoHomeScreen()),
               ),
+            ),
+            const SizedBox(height: 12),
+            StreamBuilder<List<dynamic>>(
+              stream: DemandeDepannageService().getDemandes(),
+              builder: (context, snapshot) {
+                final nouvelles = (snapshot.data ?? [])
+                    .where((d) => d.statut != 'traitee')
+                    .length;
+                return TopMenuCard(
+                  title: "Suivi Dépannage",
+                  icon: Icons.build_circle_outlined,
+                  color: Colors.red[700]!,
+                  subtitle: nouvelles > 0
+                      ? "$nouvelles nouvelle(s) demande(s)"
+                      : "Demandes reçues via QR équipement",
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const DemandesDepannageListScreen(),
+                    ),
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 12),
             TopMenuCard(

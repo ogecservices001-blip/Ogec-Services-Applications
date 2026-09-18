@@ -8,6 +8,7 @@ import '../releve/dynamic_releve_form_screen.dart';
 import 'equipement_model.dart';
 import 'ajouter_equipement_screen.dart';
 import 'visualiser_donnees_screen.dart';
+import 'equipement_qr_dialog.dart';
 import 'import_equipements_screen.dart';
 import 'equipement_export_service.dart';
 import '../references_horaires/references_horaires_service.dart';
@@ -400,13 +401,28 @@ class _ClientEquipementsListScreenState
                 _heuresPrevues(eq, references),
               ],
             ),
-            trailing: (!readOnly && _isAdmin)
-                ? IconButton(
-                    icon: const Icon(Icons.delete_outline, color: Colors.red),
-                    onPressed: () =>
-                        _supprimerEquipement(GmaoDatabaseService(), eq),
-                  )
-                : null,
+            trailing: readOnly
+                ? null
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.qr_code_2, color: Colors.blueGrey),
+                        tooltip: 'QR code équipement',
+                        onPressed: () => showDialog(
+                          context: context,
+                          builder: (context) =>
+                              EquipementQrDialog(equipement: eq),
+                        ),
+                      ),
+                      if (_isAdmin)
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline, color: Colors.red),
+                          onPressed: () =>
+                              _supprimerEquipement(GmaoDatabaseService(), eq),
+                        ),
+                    ],
+                  ),
           ),
           if (eq.remarqueTechnicien.isNotEmpty)
             Padding(
