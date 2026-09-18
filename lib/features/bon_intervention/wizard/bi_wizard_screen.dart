@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:printing/printing.dart';
 import 'package:signature/signature.dart';
 import '../../../core/services/user_service.dart';
+import '../../../core/widgets/ocr_scan_button.dart';
 import '../../affaires/client_affaires_list_screen.dart';
 import '../../affaires/data/affaire_model.dart';
 import '../../affaires/travaux_clients_screen.dart';
@@ -1352,12 +1353,17 @@ class _BiWizardScreenState extends State<BiWizardScreen> {
 
   Widget _champMateriel(ChampEnTete champ) {
     if (champ.options.isEmpty) {
+      final controller = _materielControllers[champ.cle]!;
       return TextField(
-        controller: _materielControllers[champ.cle],
+        controller: controller,
         keyboardType: champ.numerique ? const TextInputType.numberWithOptions(decimal: true) : TextInputType.text,
         decoration: InputDecoration(
           labelText: champ.label,
           suffixText: champ.unite.isEmpty ? null : champ.unite,
+          suffixIcon: OcrScanButton(
+            controller: controller,
+            onRecognized: (v) => setState(() => _materielChampsEnTete[champ.cle] = v),
+          ),
           border: const OutlineInputBorder(),
           isDense: true,
         ),

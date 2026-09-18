@@ -4,6 +4,7 @@ import '../equipements/equipement_model.dart';
 import '../gmao_database_service.dart';
 import '../../annuaire/clients/client_model.dart';
 import '../../../core/services/user_service.dart';
+import '../../../core/widgets/ocr_scan_button.dart';
 import '../references_horaires/reference_horaire_model.dart';
 import '../references_horaires/references_horaires_service.dart';
 import '../references_horaires/calcul_heures_visite.dart';
@@ -692,6 +693,11 @@ class _DynamicReleveFormScreenState extends State<DynamicReleveFormScreen> {
               decoration: InputDecoration(
                 labelText: champ.label,
                 suffixText: champ.unite.isEmpty ? null : champ.unite,
+                suffixIcon: OcrScanButton(
+                  controller: _champsEnTeteControllers[champ.cle]!,
+                  onRecognized: (v) =>
+                      setState(() => _champsEnTeteValues[champ.cle] = v),
+                ),
                 isDense: true,
                 border: const OutlineInputBorder(),
               ),

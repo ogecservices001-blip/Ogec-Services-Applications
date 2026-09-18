@@ -2,7 +2,7 @@ name: ogec_services_app
 description: "Application unifiée OGEC Services — CERFA et répertoire clients/fournisseurs"
 publish_to: 'none'
 
-version: 1.0.8+46
+version: 1.0.8+47
 
 environment:
   sdk: '>=3.10.0 <4.0.0'
@@ -48,6 +48,9 @@ dependencies:
   # Bon d'intervention
   image_picker: ^1.1.2
   firebase_storage: 13.4.0
+
+  # OCR (référence/n° série équipements) — Android uniquement, SDK natif.
+  google_mlkit_text_recognition: ^0.15.0
 
   # Branding
   flutter_launcher_icons: ^0.14.4
